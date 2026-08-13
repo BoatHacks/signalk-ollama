@@ -1,0 +1,88 @@
+{
+  "name": "signalk-ollama",
+  "version": "0.1.0",
+  "description": "Ollama as a managed container for Signal K — a local LLM server other containerized services (signalk-whisper, signalk-wyoming, signalk-piper) can call.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "public",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && webpack",
+    "test": "npm run typecheck:test && vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit --project tsconfig.test.json",
+    "prettier": "prettier --write .",
+    "lint": "eslint --fix",
+    "format": "npm run prettier && npm run lint",
+    "ci-lint": "eslint && prettier --check .",
+    "prepare": "husky || true",
+    "release": "git tag -d v$npm_package_version; git tag v$npm_package_version && git push && git push origin v$npm_package_version",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "lint-staged": {
+    "*.{ts,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,css,html}": "prettier --write"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-plugin-configurator",
+    "signalk-category-utility",
+    "ollama",
+    "llm",
+    "ai",
+    "container"
+  ],
+  "author": "BoatHacks",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BoatHacks/signalk-ollama.git"
+  },
+  "signalk": {
+    "displayName": "Ollama",
+    "requires": [
+      "signalk-container"
+    ],
+    "recommends": [
+      "signalk-whisper",
+      "signalk-wyoming",
+      "signalk-piper"
+    ]
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "signalk-container-helper": "^0.2.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "@eslint/js": "^10.0.1",
+    "@signalk/server-api": "^2.30.0",
+    "@types/node": "^24.0.0",
+    "babel-loader": "^10.1.1",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^4.1.10",
+    "webpack": "^5.105.4",
+    "webpack-cli": "^7.0.2"
+  }
+}

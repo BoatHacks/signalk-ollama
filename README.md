@@ -1,0 +1,133 @@
+# signalk-ollama
+
+> **Status: ALPHA.** Freshly built, not yet run against real boat hardware.
+> It _should_ work. File issues for anything that doesn't.
+
+## What is this?
+
+[Ollama](https://ollama.com) as a [Signal K](https://signalk.org) managed
+container — a local LLM server other software on the boat can call. The
+plugin starts Ollama in a container (via the
+[signalk-container](https://www.npmjs.com/package/signalk-container) plugin),
+waits for its API to answer, pulls whatever models you've configured, and
+keeps it healthy. You never have to touch docker or podman yourself.
+
+It exists to feed **other containerized services** — the same "managed
+container" archetype as
+[signalk-whisper](https://github.com/hoeken/signalk-whisper),
+[signalk-wyoming](https://github.com/hoeken/signalk-wyoming), and
+[signalk-piper](https://github.com/hoeken/signalk-piper) — and anything else
+on the boat that speaks the [Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md):
+a voice assistant summarizing the day's log, an alert-narration plugin, a
+chatbot panel, or a script you wrote yourself. signalk-ollama does not do any
+of that itself — it just makes sure a local LLM is running and has the
+models you asked for.
+
+## Requirements
+
+- Signal K server ≥ 2.x on **Node 24+**
+- The **signalk-container** plugin with a working podman or docker runtime
+- RAM/disk for whatever models you configure — see "Sizing". CPU inference on
+  a Raspberry Pi or small NUC is fine for small (≤ 3B) models; bigger models
+  want more RAM and, ideally, a GPU (see "GPU acceleration").
+
+## Install
+
+Install **signalk-ollama** from the Signal K App Store (or `npm install
+signalk-ollama` in your server directory), enable it in Plugin Config, and
+enable the signalk-container plugin if you have not already.
+
+## Configuration
+
+The plugin ships a graphical configuration panel (Server → Plugin Config →
+Ollama) with a live container status card, a one-click image update
+check/apply, a version dropdown fed by Docker Hub, a model list editor with
+per-model pull progress, and the settings below. On servers without
+custom-panel support you get a plain settings form with the same options.
+
+| Setting                  | Default          | Notes                                                                                                                                                                                                               |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `models`                 | `[]`             | Models to pull automatically, e.g. `llama3.2:3b`. Re-checked on every start; already-present models are skipped. Empty runs a bare server — pull models yourself with `ollama pull` or another service's API calls. |
+| `imageTag`               | `auto`           | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                       |
+| `port`                   | `11434`          | Host TCP port — only used with `advanced.bind: 0.0.0.0`, where the service is published on exactly this port. With the default loopback networking a host port is assigned automatically.                           |
+| `advanced.bind`          | `127.0.0.1`      | `127.0.0.1` keeps Ollama reachable only from this machine. `0.0.0.0` publishes it on all interfaces so sibling containers or other machines on the LAN can call it directly. See Security.                          |
+| `advanced.memoryLimit`   | `4g`             | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                            |
+| `advanced.restartPolicy` | `unless-stopped` | Container runtime restart policy.                                                                                                                                                                                   |
+| `advanced.gpu`           | `none`           | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                      |
+
+### Sizing
+
+Ollama models range from ~1 GB (small distilled/quantized models) to tens of
+GB. As a rule of thumb, budget resident RAM roughly equal to the model's
+download size, plus headroom for Signal K and everything else running on the
+box. Set `advanced.memoryLimit` above that, or the container gets OOM-killed
+mid-generation. On a Pi 4/5 or small NUC, stick to models in the 1B–3B range
+(quantized) unless you've confirmed the latency is acceptable.
+
+### GPU acceleration
+
+- **`none` (default).** CPU inference. Works everywhere; slow for anything
+  beyond small models.
+- **`amd`.** Passes through `/dev/kfd` and `/dev/dri` and runs the image's
+  `-rocm` tag variant. This works from device nodes alone — no extra host
+  configuration needed beyond a ROCm-capable kernel driver.
+- **`nvidia`.** Passes through the Nvidia device nodes (`/dev/nvidia0`,
+  `/dev/nvidiactl`, …) and sets `NVIDIA_VISIBLE_DEVICES=all`. This is
+  **best-effort**: full CUDA acceleration normally also requires the host's
+  container runtime to be configured for Nvidia (the
+  [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)
+  runtime hook, or CDI), which `signalk-container` does not yet drive itself.
+  If your host already has the Nvidia runtime set up, this may be enough; if
+  not, Ollama will fall back to CPU inference inside the container rather
+  than failing outright. Track
+  [dirkwa/signalk-container](https://github.com/dirkwa/signalk-container) for
+  first-class `--gpus`/CDI support.
+
+## Pulling models
+
+Add model names in the config panel (or the `models` array) and save —
+Signal K restarts the plugin, which pulls anything not already present. Pull
+progress shows in the plugin status line and per-model in the config panel;
+a bad model name fails that one model without blocking the others. Add a
+model later via the panel's "Add model" + "Pull now" without waiting for a
+restart, or remove one you no longer want.
+
+Pulls happen over the Ollama API (`/api/pull`) — the same thing `ollama pull
+<model>` does on the CLI, but driven by the plugin so it survives across
+container recreates (models land in this plugin's Signal K data directory,
+which is preserved across updates).
+
+**Do the first pull of any model while you have internet** — at sea with no
+connectivity, a never-downloaded model cannot load.
+
+## Using it from other software
+
+Once ready, Ollama is a plain HTTP API server at `http://<host>:<port>`
+(normally `http://127.0.0.1:11434`):
+
+- **Other Signal K plugins on the same box** (bare-metal or containerized)
+  can reach it via loopback with the default settings, or set
+  `advanced.bind: 0.0.0.0` if they run in a separate container and need a
+  published port.
+- **signalk-whisper / signalk-wyoming / signalk-piper** don't consume Ollama
+  directly — they're the STT/orchestration/TTS legs of a voice pipeline. A
+  plugin that wants an LLM in that pipeline (e.g. to turn a transcript into
+  an answer before speaking it) points at this server's `/api/generate` or
+  `/api/chat` endpoint.
+- **Anything else that speaks Ollama's API** — a script, a chatbot panel, or
+  Home Assistant's Ollama integration — can use it the same way. Ollama has
+  no built-in authentication: only expose `0.0.0.0` on trusted networks.
+
+## Development
+
+```bash
+npm install
+npm test          # typecheck (source + tests), then vitest (fully mocked — no containers needed)
+npm run build     # tsc → dist/, webpack → public/ (config panel)
+npm run format    # prettier --write + eslint --fix
+npm run ci-lint   # eslint + prettier --check (what CI runs)
+```
+
+## License
+
+Apache-2.0
