@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  # Manual dispatch tags and releases in one step — for cutting a release
+  # from an environment (CI agent sandboxes) that cannot push a git tag
+  # directly. Normal releases should still use `npm run release` (tag +
+  # push) per AGENTS.md; this is the fallback path.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag and release, without the v prefix (e.g. 0.1.0)"
+        required: true
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -18,27 +27,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create and push the tag (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Extract release notes from CHANGELOG.md
         run: |
-          awk -v ver="## [${GITHUB_REF_NAME#v}]" '
+          tag="${{ steps.tag.outputs.name }}"
+          awk -v ver="## [${tag#v}]" '
             index($0, ver) == 1 { found = 1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
-            echo "::error::No CHANGELOG.md section found for ${GITHUB_REF_NAME}"
+            echo "::error::No CHANGELOG.md section found for ${tag}"
             exit 1
           fi
-          echo "----- release notes for ${GITHUB_REF_NAME} -----"
+          echo "----- release notes for ${tag} -----"
           cat release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
           body_path: release-notes.md
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          prerelease: ${{ contains(steps.tag.outputs.name, 'beta') || contains(steps.tag.outputs.name, 'alpha') || contains(steps.tag.outputs.name, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
