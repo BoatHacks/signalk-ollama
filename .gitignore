@@ -1,6 +1,10 @@
 # build output
 dist/
-public/
+# webpack output for the config panel (public/assets/ and public/favicon.ico
+# are checked-in branding assets, not generated — see AGENTS.md)
+public/remoteEntry.js
+public/*.mjs
+public/*.mjs.LICENSE.txt
 node_modules/
 *.log
 .DS_Store

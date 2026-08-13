@@ -28,6 +28,12 @@ src/
   index.ts          Signal K plugin factory wiring service.ts to the app
   configpanel/       Admin UI panel (Module Federation remote, no JSX in dist)
 test/               vitest suites, fully mocked (no real containers/network)
+public/assets/icons/  checked-in App Store/favicon icons (16-512px), NOT
+                      webpack output — see the .gitignore comment before
+                      broadening any "ignore public/" pattern
+assets/branding/    full-res icon source, not shipped in the npm package
+                      (not in package.json "files"); regenerate the sizes
+                      under public/assets/icons/ from this if the logo changes
 ```
 
 ## Commands

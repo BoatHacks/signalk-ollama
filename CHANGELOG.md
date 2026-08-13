@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Project icon (the captain-hat llama): App Store/webapp-list icon via
+  `signalk.appIcon`, plus a `public/favicon.ico`. Sizes 16–512px live under
+  `public/assets/icons/`; the full-resolution source is kept at
+  `assets/branding/icon-source.png` (not shipped in the npm package) for
+  regenerating them later.
+
 ## [0.1.0] - 2026-08-13
 
 ### Added

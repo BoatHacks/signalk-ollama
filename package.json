@@ -49,6 +49,7 @@
   },
   "signalk": {
     "displayName": "Ollama",
+    "appIcon": "assets/icons/icon-192x192.png",
     "requires": [
       "signalk-container"
     ],
