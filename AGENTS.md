@@ -108,8 +108,17 @@ with `npm ci` in CI, `npm install` locally when `package.json` changes.
   don't weaken it.
 
 - **Never mix a version bump into a feature or fix PR.** Version bumps get
-  their own commit (see the `plugin-release` release process) so the
-  history stays bisectable.
+  their own commit so the history stays bisectable.
+
+- **Cut releases with `/plugin-release`, not by hand.** It bumps the
+  version, converts the CHANGELOG's `[Unreleased]` section to a dated
+  entry, tags, and cuts the GitHub release. In an agent sandbox, `git push`
+  of a tag ref (`refs/tags/*`) is blocked by the git proxy (branches push
+  fine) — dispatch `.github/workflows/publish.yml` manually instead
+  (`workflow_dispatch` with a `version` input); it tags and releases from
+  inside the Actions runner, which isn't subject to that restriction. From
+  a real machine with normal git credentials, `npm run release` (tag +
+  push) works as usual.
 
 - **This plugin does not have npm publishing credentials configured in
   agent sessions.** `npm publish` is the maintainer's own step, run
