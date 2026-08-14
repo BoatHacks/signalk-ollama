@@ -36,16 +36,34 @@ export interface AdvancedSettings {
   gpu: GpuMode;
 }
 
+/** One MCP server the chat tool-calling loop can offer tools from. */
+export interface McpConnectionSettings {
+  name: string;
+  /** Streamable HTTP endpoint, e.g. "http://localhost:8000/mcp". */
+  url: string;
+  enabled: boolean;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  connections: McpConnectionSettings[];
+}
+
 export interface OllamaSettings {
   imageTag: string;
   /** Models to pull automatically once the server answers, e.g. "llama3.2:3b". */
   models: string[];
   port: number;
   advanced: AdvancedSettings;
+  mcp: McpSettings;
 }
 
 /** ~2.0 GB download — small enough to be a sane out-of-the-box default. */
 export const DEFAULT_MODEL = "llama3.2:3b";
+
+/** signalk-mcp-container's documented Streamable HTTP endpoint. */
+export const DEFAULT_MCP_CONNECTION_NAME = "signalk-mcp-container";
+export const DEFAULT_MCP_URL = "http://localhost:8000/mcp";
 
 export function defaultSettings(): OllamaSettings {
   return {
@@ -61,6 +79,18 @@ export function defaultSettings(): OllamaSettings {
       memoryLimit: "4g",
       restartPolicy: "unless-stopped",
       gpu: "none",
+    },
+    mcp: {
+      enabled: true,
+      // signalk-mcp-container by default — install and enable it to give
+      // chat models live SignalK data and tools with no extra setup.
+      connections: [
+        {
+          name: DEFAULT_MCP_CONNECTION_NAME,
+          url: DEFAULT_MCP_URL,
+          enabled: true,
+        },
+      ],
     },
   };
 }
@@ -90,6 +120,35 @@ function sanitizeModels(raw: unknown): string[] {
     models.push(trimmed);
   }
   return models;
+}
+
+/** True for a non-empty http(s) URL — the only shape a Streamable HTTP MCP endpoint can be. */
+export function isValidMcpUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeMcpConnections(raw: unknown): McpConnectionSettings[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const connections: McpConnectionSettings[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry) || !isValidMcpUrl(entry.url)) continue;
+    const url = entry.url.trim();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const name =
+      typeof entry.name === "string" && entry.name.trim() !== ""
+        ? entry.name.trim()
+        : url;
+    connections.push({ name, url, enabled: entry.enabled !== false });
+  }
+  return connections;
 }
 
 /**
@@ -130,6 +189,13 @@ export function applyDefaults(raw: unknown): OllamaSettings {
   const gpu =
     adv.gpu === "amd" || adv.gpu === "nvidia" ? adv.gpu : defaults.advanced.gpu;
 
+  const mcpRaw = isRecord(raw.mcp) ? raw.mcp : {};
+  const mcpEnabled =
+    typeof mcpRaw.enabled === "boolean" ? mcpRaw.enabled : defaults.mcp.enabled;
+  const mcpConnections = Array.isArray(mcpRaw.connections)
+    ? sanitizeMcpConnections(mcpRaw.connections)
+    : defaults.mcp.connections;
+
   return {
     imageTag,
     models: Array.isArray(raw.models)
@@ -137,6 +203,7 @@ export function applyDefaults(raw: unknown): OllamaSettings {
       : defaults.models,
     port,
     advanced: { bind, memoryLimit, restartPolicy, gpu },
+    mcp: { enabled: mcpEnabled, connections: mcpConnections },
   };
 }
 
@@ -306,11 +373,59 @@ export const CONFIG_SCHEMA = {
         },
       },
     },
+    mcp: {
+      type: "object",
+      title: "MCP tool connections",
+      properties: {
+        enabled: {
+          type: "boolean",
+          title: "Enable MCP tools in chat",
+          default: true,
+          description:
+            "When on, the playground (and any other caller of /api/chat) " +
+            "offers the tools from the connections below to the model via " +
+            "Ollama's tool-calling API, so it can call them mid-conversation " +
+            "(e.g. read live SignalK data through signalk-mcp-container). " +
+            "Only tool-calling-capable models actually use them; others " +
+            "just ignore the tools.",
+        },
+        connections: {
+          type: "array",
+          title: "MCP servers",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", title: "Name" },
+              url: { type: "string", title: "Streamable HTTP URL" },
+              enabled: { type: "boolean", title: "Enabled", default: true },
+            },
+          },
+          default: [
+            {
+              name: DEFAULT_MCP_CONNECTION_NAME,
+              url: DEFAULT_MCP_URL,
+              enabled: true,
+            },
+          ],
+          description:
+            "Model Context Protocol servers reachable over Streamable " +
+            `HTTP. Defaults to this boat's signalk-mcp-container plugin at ` +
+            `${DEFAULT_MCP_URL} — install and enable that plugin to give ` +
+            "models live SignalK data and tools with no extra setup. Add " +
+            "more MCP servers here if you run others.",
+        },
+      },
+    },
   },
 } as const;
 
 export const UI_SCHEMA = {
   models: {
     "ui:options": { orderable: false },
+  },
+  mcp: {
+    connections: {
+      "ui:options": { orderable: false },
+    },
   },
 } as const;

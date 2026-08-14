@@ -240,6 +240,208 @@ describe("OllamaService", () => {
     });
   });
 
+  it("registerRoutes: POST /api/chat offers MCP tools and runs a tool-call round-trip", async () => {
+    let chatCallCount = 0;
+    fetchImpl.mockImplementation(
+      async (url: string, init?: { method?: string; body?: string }) => {
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/api/version")) {
+          return new Response(JSON.stringify({ version: "0.32.10" }), {
+            status: 200,
+          });
+        }
+        if (url === "http://mcp.local/mcp" && method === "POST") {
+          const body = JSON.parse(init!.body!) as {
+            method: string;
+            id?: number;
+            params?: { name?: string };
+          };
+          if (body.method === "notifications/initialized") {
+            return new Response(null, { status: 202 });
+          }
+          if (body.method === "initialize") {
+            return new Response(
+              JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {} }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          if (body.method === "tools/list") {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                result: {
+                  tools: [{ name: "get_position", description: "position" }],
+                },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          if (body.method === "tools/call") {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                result: { content: [{ type: "text", text: "44.5,-63.5" }] },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          throw new Error(`unexpected MCP method: ${body.method}`);
+        }
+        if (url.endsWith("/api/chat") && method === "POST") {
+          chatCallCount += 1;
+          const body = JSON.parse(init!.body!) as { tools?: unknown[] };
+          if (chatCallCount === 1) {
+            expect(body.tools).toEqual([
+              {
+                type: "function",
+                function: {
+                  name: "get_position",
+                  description: "position",
+                  parameters: { type: "object", properties: {} },
+                },
+              },
+            ]);
+            return ndjsonResponse([
+              {
+                message: {
+                  role: "assistant",
+                  content: "",
+                  tool_calls: [
+                    { function: { name: "get_position", arguments: {} } },
+                  ],
+                },
+                done: true,
+              },
+            ]);
+          }
+          return ndjsonResponse([
+            {
+              message: {
+                role: "assistant",
+                content: "You are at 44.5,-63.5.",
+              },
+              done: true,
+            },
+          ]);
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      },
+    );
+
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({
+      mcp: {
+        enabled: true,
+        connections: [
+          { name: "mcp", url: "http://mcp.local/mcp", enabled: true },
+        ],
+      },
+    });
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("POST /api/chat")!;
+    const res = new FakeStreamResponse();
+    handler(
+      {
+        body: {
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "where am I?" }],
+        },
+      },
+      res,
+    );
+    await res.done;
+    expect(chatCallCount).toBe(2);
+    const chunks = res.parsedChunks<{ message?: { content: string } }>();
+    expect(chunks.at(-1)?.message?.content).toBe("You are at 44.5,-63.5.");
+    expect(chunks.some((c) => c.message?.content === "44.5,-63.5")).toBe(true);
+  });
+
+  it("registerRoutes: GET /api/mcp/status reports per-connection tool counts and errors", async () => {
+    fetchImpl.mockImplementation(
+      async (url: string, init?: { method?: string; body?: string }) => {
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/api/version")) {
+          return new Response(JSON.stringify({ version: "0.32.10" }), {
+            status: 200,
+          });
+        }
+        if (url === "http://good.local/mcp" && method === "POST") {
+          const body = JSON.parse(init!.body!) as {
+            method: string;
+            id?: number;
+          };
+          if (body.method === "notifications/initialized") {
+            return new Response(null, { status: 202 });
+          }
+          if (body.method === "tools/list") {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                result: { tools: [{ name: "a" }, { name: "b" }] },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {} }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url === "http://bad.local/mcp") {
+          return new Response("nope", { status: 500 });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      },
+    );
+
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({
+      mcp: {
+        enabled: true,
+        connections: [
+          { name: "good", url: "http://good.local/mcp", enabled: true },
+          { name: "bad", url: "http://bad.local/mcp", enabled: true },
+        ],
+      },
+    });
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("GET /api/mcp/status")!;
+    const res = new FakeResponse();
+    handler({}, res);
+    const body = (await res.done) as {
+      connections: {
+        name: string;
+        toolCount: number;
+        error: string | null;
+      }[];
+    };
+    expect(body.connections).toContainEqual(
+      expect.objectContaining({ name: "good", toolCount: 2, error: null }),
+    );
+    expect(body.connections.find((c) => c.name === "bad")?.error).toMatch(
+      /HTTP 500/,
+    );
+  });
+
+  it("registerRoutes: GET /api/mcp/status answers 503 while stopped", () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    const handler = router.routes.get("GET /api/mcp/status")!;
+    const res = new FakeResponse();
+    handler({}, res);
+    expect(res.statusCode).toBe(503);
+  });
+
   it("registerRoutes: POST /api/chat rejects a missing messages array before streaming", async () => {
     const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
     const router = new FakeRouter();

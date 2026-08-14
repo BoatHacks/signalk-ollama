@@ -43,15 +43,17 @@ check/apply, a version dropdown fed by Docker Hub, a model list editor with
 per-model pull progress, and the settings below. On servers without
 custom-panel support you get a plain settings form with the same options.
 
-| Setting                  | Default           | Notes                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `models`                 | `["llama3.2:3b"]` | Models to pull automatically. Defaults to `llama3.2:3b` (~2.0 GB) so Ollama is usable out of the box. Re-checked on every start; already-present models are skipped. Clear the list to run a bare server — pull models yourself with `ollama pull` or another service's API calls. Ollama can't answer chat/generate requests for a model until its pull finishes — see "Pulling models". |
-| `imageTag`               | `auto`            | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                                                                                                                                                                                             |
-| `port`                   | `11434`           | Host TCP port Ollama is published on (default `advanced.bind` is `0.0.0.0`, so this applies out of the box). Ignored if you switch `advanced.bind` to `127.0.0.1` — signalk-container then assigns a host port automatically instead.                                                                                                                                                     |
-| `advanced.bind`          | `0.0.0.0`         | `0.0.0.0` (default) publishes Ollama on all interfaces so sibling containers and other machines on the LAN can call it directly — see "Security". `127.0.0.1` restricts it to this machine only.                                                                                                                                                                                          |
-| `advanced.memoryLimit`   | `4g`              | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                                                                                                                                                                                                  |
-| `advanced.restartPolicy` | `unless-stopped`  | Container runtime restart policy.                                                                                                                                                                                                                                                                                                                                                         |
-| `advanced.gpu`           | `none`            | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                                                                                                                                                                                            |
+| Setting                  | Default                                                                                                    | Notes                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `models`                 | `["llama3.2:3b"]`                                                                                          | Models to pull automatically. Defaults to `llama3.2:3b` (~2.0 GB) so Ollama is usable out of the box. Re-checked on every start; already-present models are skipped. Clear the list to run a bare server — pull models yourself with `ollama pull` or another service's API calls. Ollama can't answer chat/generate requests for a model until its pull finishes — see "Pulling models". |
+| `imageTag`               | `auto`                                                                                                     | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                                                                                                                                                                                             |
+| `port`                   | `11434`                                                                                                    | Host TCP port Ollama is published on (default `advanced.bind` is `0.0.0.0`, so this applies out of the box). Ignored if you switch `advanced.bind` to `127.0.0.1` — signalk-container then assigns a host port automatically instead.                                                                                                                                                     |
+| `advanced.bind`          | `0.0.0.0`                                                                                                  | `0.0.0.0` (default) publishes Ollama on all interfaces so sibling containers and other machines on the LAN can call it directly — see "Security". `127.0.0.1` restricts it to this machine only.                                                                                                                                                                                          |
+| `advanced.memoryLimit`   | `4g`                                                                                                       | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                                                                                                                                                                                                  |
+| `advanced.restartPolicy` | `unless-stopped`                                                                                           | Container runtime restart policy.                                                                                                                                                                                                                                                                                                                                                         |
+| `advanced.gpu`           | `none`                                                                                                     | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                                                                                                                                                                                            |
+| `mcp.enabled`            | `true`                                                                                                     | Offer tools from `mcp.connections` to the model on every chat turn (see "MCP tools in chat").                                                                                                                                                                                                                                                                                             |
+| `mcp.connections`        | [signalk-mcp-container](https://github.com/BoatHacks/signalk-mcp-container) at `http://localhost:8000/mcp` | [Model Context Protocol](https://modelcontextprotocol.io) servers (Streamable HTTP) reachable for tool calls. Add, remove, or disable connections in the config panel.                                                                                                                                                                                                                    |
 
 ### Sizing
 
@@ -134,6 +136,37 @@ default, see "Security"):
 - **Anything else that speaks Ollama's API** — a script, a chatbot panel, or
   Home Assistant's Ollama integration — can use it the same way. Ollama has
   no built-in authentication: only expose `0.0.0.0` on trusted networks.
+
+## MCP tools in chat
+
+signalk-ollama can act as an [MCP](https://modelcontextprotocol.io) client
+for its own chat traffic: when `mcp.enabled` is on (the default), every
+`POST /api/chat` call — the playground included — offers the model tools
+from the configured MCP connections, over Ollama's tool-calling API. A
+tool-calling-capable model can then call them mid-conversation (e.g. read
+live SignalK data) and get the result fed straight back into the same turn,
+looping up to a few rounds until it answers without requesting another
+call. Models without tool-calling support just ignore the tools and answer
+normally.
+
+**The default connection points at
+[signalk-mcp-container](https://github.com/BoatHacks/signalk-mcp-container)**
+at `http://localhost:8000/mcp` — install and enable that plugin (it wraps
+[signalk-mcp-server](https://github.com/VesselSense/signalk-mcp-server) as a
+managed container exposing SignalK data over Streamable HTTP) and models
+here get live vessel data with no extra wiring. Both plugins' backends run
+in the same Signal K server process, so `signalk-ollama` reaches
+`signalk-mcp-container`'s published port directly over `localhost` — no
+container networking to configure on either side, as long as
+signalk-mcp-container is running on its default port (`8000`; check its
+config panel if you changed it).
+
+Manage connections from the config panel's **MCP tool connections**
+section: toggle MCP on/off, add/remove/enable/disable Streamable HTTP
+servers, and "Test connections" to see each one's reachable tool count (or
+error) before saving. In the playground, tool calls and their results show
+up inline as 🔧 lines in the transcript so you can see what the model
+asked for.
 
 ## The webapp
 
