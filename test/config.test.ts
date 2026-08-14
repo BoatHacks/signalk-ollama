@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIG_SCHEMA,
+  DEFAULT_MCP_CONNECTION_NAME,
+  DEFAULT_MCP_URL,
   IMAGE,
   PINNED_TAG,
   applyDefaults,
   buildContainerConfig,
   defaultSettings,
   isSemverTag,
+  isValidMcpUrl,
   isValidModelName,
   resolveTag,
 } from "../src/config.js";
@@ -64,6 +67,71 @@ describe("applyDefaults", () => {
       models: [" llama3.2:3b ", "llama3.2:3b", "", "  ", 42, "has space here"],
     });
     expect(settings.models).toEqual(["llama3.2:3b"]);
+  });
+
+  it("defaults mcp to enabled with signalk-mcp-container as the one connection", () => {
+    const d = defaultSettings();
+    expect(d.mcp.enabled).toBe(true);
+    expect(d.mcp.connections).toEqual([
+      {
+        name: DEFAULT_MCP_CONNECTION_NAME,
+        url: DEFAULT_MCP_URL,
+        enabled: true,
+      },
+    ]);
+  });
+
+  it("respects an explicit empty mcp connections list (not just the default)", () => {
+    const settings = applyDefaults({ mcp: { connections: [] } });
+    expect(settings.mcp.connections).toEqual([]);
+  });
+
+  it("respects mcp.enabled: false", () => {
+    const settings = applyDefaults({ mcp: { enabled: false } });
+    expect(settings.mcp.enabled).toBe(false);
+    // connections are left alone — enabled is a separate on/off switch
+    expect(settings.mcp.connections).toEqual(defaultSettings().mcp.connections);
+  });
+
+  it("sanitizes mcp connections: drops invalid URLs, dedupes by URL, defaults name/enabled", () => {
+    const settings = applyDefaults({
+      mcp: {
+        connections: [
+          { name: "boat mcp", url: "http://localhost:8000/mcp" },
+          { name: "dup", url: "http://localhost:8000/mcp" },
+          { url: "not-a-url" },
+          { url: 42 },
+          { name: "no url field" },
+          { url: "https://example.com/mcp", enabled: false },
+          { url: "  http://spacey:8000/mcp  " },
+        ],
+      },
+    });
+    expect(settings.mcp.connections).toEqual([
+      { name: "boat mcp", url: "http://localhost:8000/mcp", enabled: true },
+      {
+        name: "https://example.com/mcp",
+        url: "https://example.com/mcp",
+        enabled: false,
+      },
+      {
+        name: "http://spacey:8000/mcp",
+        url: "http://spacey:8000/mcp",
+        enabled: true,
+      },
+    ]);
+  });
+});
+
+describe("isValidMcpUrl", () => {
+  it("accepts http(s) URLs and rejects everything else", () => {
+    expect(isValidMcpUrl("http://localhost:8000/mcp")).toBe(true);
+    expect(isValidMcpUrl("https://example.com/mcp")).toBe(true);
+    expect(isValidMcpUrl("ftp://example.com/mcp")).toBe(false);
+    expect(isValidMcpUrl("not a url")).toBe(false);
+    expect(isValidMcpUrl("")).toBe(false);
+    expect(isValidMcpUrl(undefined)).toBe(false);
+    expect(isValidMcpUrl(42)).toBe(false);
   });
 });
 
@@ -171,5 +239,8 @@ describe("CONFIG_SCHEMA", () => {
     expect(adv.memoryLimit.default).toBe(d.advanced.memoryLimit);
     expect(adv.restartPolicy.default).toBe(d.advanced.restartPolicy);
     expect(adv.gpu.default).toBe(d.advanced.gpu);
+    const mcp = props.mcp.properties;
+    expect(mcp.enabled.default).toBe(d.mcp.enabled);
+    expect(mcp.connections.default).toEqual(d.mcp.connections);
   });
 });

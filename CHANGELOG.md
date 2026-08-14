@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- MCP tool support in chat: when `mcp.enabled` (default on), `/api/chat` —
+  the playground included — offers tools from configured
+  [MCP](https://modelcontextprotocol.io) (Streamable HTTP) connections to
+  the model via Ollama's tool-calling API, executes any tool calls it makes,
+  and feeds the results back for up to a few rounds. Defaults to one
+  connection: [signalk-mcp-container](https://github.com/BoatHacks/signalk-mcp-container)
+  at `http://localhost:8000/mcp`, reachable directly since both plugins'
+  backends run in the same Signal K process. Manage connections (add,
+  remove, enable/disable, test) from the config panel's new "MCP tool
+  connections" section; tool calls and results show up inline in the
+  playground transcript.
+
 ### Changed
 
 - App Store `recommends` (and other user-facing mentions of typical Ollama

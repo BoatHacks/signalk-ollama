@@ -32,8 +32,11 @@ import {
   normalizeModelName,
   pullModel,
   type ChatMessage,
+  type OllamaToolDefinition,
   type PullEvent,
+  type ToolCall,
 } from "./ollama-api.js";
+import { McpConnectionClient, toOllamaTool } from "./mcp-client.js";
 
 export const PLUGIN_ID = "signalk-ollama";
 
@@ -97,6 +100,17 @@ export interface ServiceApp {
 /** How often a still-pulling model may update the plugin status line. */
 const STATUS_THROTTLE_MS = 3_000;
 
+/** Caps the tool-call ↔ tool-result exchange per chat turn against a runaway model. */
+const MAX_TOOL_ROUNDS = 4;
+
+export interface McpConnectionStatus {
+  name: string;
+  url: string;
+  enabled: boolean;
+  toolCount: number;
+  error: string | null;
+}
+
 export class OllamaService {
   readonly container: ManagedContainer;
   settings: OllamaSettings = applyDefaults(undefined);
@@ -117,6 +131,9 @@ export class OllamaService {
    * within the same server process — cleared only by a full server restart. */
   private interactions: InteractionRecord[] = [];
   private nextInteractionId = 1;
+
+  /** MCP client per connection URL, reused across chat turns to keep sessions alive. */
+  private mcpClients = new Map<string, McpConnectionClient>();
 
   constructor(app: ServiceApp, options: { fetchImpl?: FetchLike } = {}) {
     this.app = app;
@@ -158,6 +175,12 @@ export class OllamaService {
     this.modelStates = new Map(
       this.settings.models.map((m) => [m, { status: "pending" as const }]),
     );
+    const activeMcpUrls = new Set(
+      this.settings.mcp.connections.map((c) => c.url),
+    );
+    for (const url of this.mcpClients.keys()) {
+      if (!activeMcpUrls.has(url)) this.mcpClients.delete(url);
+    }
     const runId = this.runId;
     startSafely(this.app, async () => {
       await this.startAsync(runId);
@@ -346,10 +369,92 @@ export class OllamaService {
     }
   }
 
+  private mcpClient(name: string, url: string): McpConnectionClient {
+    let client = this.mcpClients.get(url);
+    if (!client) {
+      client = new McpConnectionClient(name, url);
+      this.mcpClients.set(url, client);
+    }
+    return client;
+  }
+
+  /**
+   * List tools from every enabled MCP connection (in parallel, each failure
+   * isolated — one unreachable server must not block the others or the
+   * chat). Returns the combined Ollama-shaped tool list, an index from tool
+   * name back to the connection that serves it (first connection wins a
+   * name collision), and a per-connection status breakdown for the config
+   * panel / status route.
+   */
+  private async probeMcpConnections(): Promise<{
+    tools: OllamaToolDefinition[];
+    toolIndex: Map<string, McpConnectionClient>;
+    statuses: McpConnectionStatus[];
+  }> {
+    const { connections, enabled: mcpEnabled } = this.settings.mcp;
+    const tools: OllamaToolDefinition[] = [];
+    const toolIndex = new Map<string, McpConnectionClient>();
+    const statuses: McpConnectionStatus[] = [];
+
+    await Promise.all(
+      connections.map(async (conn) => {
+        if (!mcpEnabled || !conn.enabled) {
+          statuses.push({ ...conn, toolCount: 0, error: null });
+          return;
+        }
+        const client = this.mcpClient(conn.name, conn.url);
+        try {
+          const defs = await client.listTools();
+          for (const def of defs) {
+            if (toolIndex.has(def.name)) continue;
+            toolIndex.set(def.name, client);
+            tools.push(toOllamaTool(def));
+          }
+          statuses.push({ ...conn, toolCount: defs.length, error: null });
+        } catch (err) {
+          client.reset();
+          statuses.push({ ...conn, toolCount: 0, error: errMsg(err) });
+        }
+      }),
+    );
+    return { tools, toolIndex, statuses };
+  }
+
+  private async runToolCall(
+    call: ToolCall,
+    toolIndex: Map<string, McpConnectionClient>,
+  ): Promise<string> {
+    const client = toolIndex.get(call.function.name);
+    if (!client) {
+      return `error: unknown tool "${call.function.name}"`;
+    }
+    try {
+      const result = await client.callTool(
+        call.function.name,
+        call.function.arguments ?? {},
+      );
+      const text = (result.content ?? [])
+        .map((item) =>
+          typeof item.text === "string" ? item.text : JSON.stringify(item),
+        )
+        .join("\n");
+      return result.isError ? `error: ${text}` : text || "(no output)";
+    } catch (err) {
+      client.reset();
+      return `error calling ${call.function.name}: ${errMsg(err)}`;
+    }
+  }
+
   /**
    * Stream one playground chat turn against Ollama's /api/chat, forwarding
    * each NDJSON chunk to `onChunk` and logging the exchange (success or
    * failure) to the interactions list once the stream ends.
+   *
+   * When MCP is enabled and at least one connection has tools, the model is
+   * offered them on every round; a round that comes back with tool_calls is
+   * answered by invoking the matching MCP connection(s) and feeding the
+   * results back as "tool" messages, then looping — up to MAX_TOOL_ROUNDS —
+   * until the model replies without requesting another call.
    */
   private async chat(
     model: string,
@@ -369,10 +474,39 @@ export class OllamaService {
     const startedAtMs = Date.now();
     let assistantText = "";
     try {
-      await chatStream(uri, model, messages, (chunk) => {
-        if (chunk.message?.content) assistantText += chunk.message.content;
-        onChunk(chunk);
-      });
+      const { tools, toolIndex } = await this.probeMcpConnections();
+      const conversation: ChatMessage[] = [...messages];
+      for (let round = 1; ; round += 1) {
+        let roundContent = "";
+        let pendingToolCalls: ToolCall[] = [];
+        await chatStream(
+          uri,
+          model,
+          conversation,
+          (chunk) => {
+            if (chunk.message?.content) {
+              assistantText += chunk.message.content;
+              roundContent += chunk.message.content;
+            }
+            if (chunk.message?.tool_calls?.length) {
+              pendingToolCalls = chunk.message.tool_calls;
+            }
+            onChunk(chunk);
+          },
+          { tools },
+        );
+        if (pendingToolCalls.length === 0 || round >= MAX_TOOL_ROUNDS) break;
+        conversation.push({
+          role: "assistant",
+          content: roundContent,
+          tool_calls: pendingToolCalls,
+        });
+        for (const call of pendingToolCalls) {
+          const resultText = await this.runToolCall(call, toolIndex);
+          conversation.push({ role: "tool", content: resultText });
+          onChunk({ message: { role: "tool", content: resultText } });
+        }
+      }
       this.recordInteraction({
         model,
         prompt: truncate(lastUserMessage),
@@ -508,6 +642,16 @@ export class OllamaService {
           res.status(502).json({ error: errMsg(err) });
         }
       })();
+    });
+
+    // Not on statusRouter's 5s poll cadence — probing every MCP connection
+    // (a network round trip each) belongs to an explicit user action (the
+    // config panel's "Test connections"), not a background timer.
+    router.get("/api/mcp/status", (_req: unknown, res: ResponseLike) => {
+      if (!guardRunning(res)) return;
+      void this.probeMcpConnections().then(({ statuses }) => {
+        res.json({ connections: statuses });
+      });
     });
 
     router.post("/api/models/pull", (req: unknown, res: ResponseLike) => {

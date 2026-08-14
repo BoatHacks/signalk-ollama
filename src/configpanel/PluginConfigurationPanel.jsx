@@ -39,6 +39,14 @@ const DEFAULTS = {
   memoryLimit: "4g",
   restartPolicy: "unless-stopped",
   gpu: "none",
+  mcpEnabled: true,
+  mcpConnections: [
+    {
+      name: "signalk-mcp-container",
+      url: "http://localhost:8000/mcp",
+      enabled: true,
+    },
+  ],
 };
 /** ~2.0 GB download — shown so users know what they're about to pull. */
 const DEFAULT_MODEL_SIZE = "~2.0 GB";
@@ -84,6 +92,18 @@ export default function PluginConfigurationPanel({ configuration, save }) {
   const [gpu, setGpu] = useState(adv.gpu || DEFAULTS.gpu);
   const [saved, setSaved] = useState("");
   const [pulling, setPulling] = useState("");
+
+  const mcp = cfg.mcp || {};
+  const [mcpEnabled, setMcpEnabled] = useState(
+    mcp.enabled !== undefined ? mcp.enabled : DEFAULTS.mcpEnabled,
+  );
+  const [mcpConnections, setMcpConnections] = useState(
+    Array.isArray(mcp.connections) ? mcp.connections : DEFAULTS.mcpConnections,
+  );
+  const [newMcpName, setNewMcpName] = useState("");
+  const [newMcpUrl, setNewMcpUrl] = useState("");
+  const [mcpTesting, setMcpTesting] = useState(false);
+  const [mcpTestResults, setMcpTestResults] = useState(null);
 
   const { status, loading, refresh } = useStatusPoll(`${BASE}/api/status`, {
     fallback: { status: "not_running" },
@@ -137,6 +157,45 @@ export default function PluginConfigurationPanel({ configuration, save }) {
     }
   };
 
+  const addMcpConnection = () => {
+    const name = newMcpName.trim();
+    const url = newMcpUrl.trim();
+    if (url === "" || mcpConnections.some((c) => c.url === url)) return;
+    setMcpConnections([
+      ...mcpConnections,
+      { name: name || url, url, enabled: true },
+    ]);
+    setNewMcpName("");
+    setNewMcpUrl("");
+  };
+
+  const removeMcpConnection = (url) => {
+    setMcpConnections(mcpConnections.filter((c) => c.url !== url));
+  };
+
+  const toggleMcpConnection = (url) => {
+    setMcpConnections(
+      mcpConnections.map((c) =>
+        c.url === url ? { ...c, enabled: !c.enabled } : c,
+      ),
+    );
+  };
+
+  const testMcpConnections = async () => {
+    setMcpTesting(true);
+    setMcpTestResults(null);
+    try {
+      const res = await fetch(`${BASE}/api/mcp/status`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setMcpTestResults(data.connections || []);
+    } catch (err) {
+      setMcpTestResults({ error: err.message || String(err) });
+    } finally {
+      setMcpTesting(false);
+    }
+  };
+
   const doSave = () => {
     const portNumber = Number(port);
     save({
@@ -146,6 +205,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
       port:
         port !== "" && Number.isFinite(portNumber) ? portNumber : DEFAULT_PORT,
       advanced: { bind, memoryLimit, restartPolicy, gpu },
+      mcp: { enabled: mcpEnabled, connections: mcpConnections },
     });
     setSaved("Saved. Signal K restarts the plugin with the new configuration.");
   };
@@ -227,6 +287,96 @@ export default function PluginConfigurationPanel({ configuration, save }) {
         <Button onClick={addModel} style={{ marginLeft: 8 }}>
           Add
         </Button>
+      </FieldRow>
+
+      <SectionTitle>MCP tool connections</SectionTitle>
+      <FieldRow
+        label="Enable MCP tools"
+        hint="lets chat models call tools from the connections below (e.g. read live SignalK data via signalk-mcp-container)"
+      >
+        <input
+          type="checkbox"
+          checked={mcpEnabled}
+          onChange={(e) => setMcpEnabled(e.target.checked)}
+        />
+      </FieldRow>
+      {mcpConnections.length === 0 && (
+        <div style={S.hint}>
+          No MCP connections configured — chat runs without tools.
+        </div>
+      )}
+      {mcpConnections.map((conn) => {
+        const result = Array.isArray(mcpTestResults)
+          ? mcpTestResults.find((r) => r.url === conn.url)
+          : null;
+        return (
+          <FieldRow
+            key={conn.url}
+            label={conn.name}
+            hint={
+              result
+                ? result.error
+                  ? `error: ${result.error}`
+                  : `${result.toolCount} tool${result.toolCount === 1 ? "" : "s"} available`
+                : conn.url
+            }
+            hintColor={result && result.error ? stateColors.error : undefined}
+          >
+            <label style={{ marginRight: 12 }}>
+              <input
+                type="checkbox"
+                checked={conn.enabled}
+                onChange={() => toggleMcpConnection(conn.url)}
+              />{" "}
+              enabled
+            </label>
+            <Button
+              onClick={() => removeMcpConnection(conn.url)}
+              style={{ marginLeft: 8 }}
+            >
+              Remove
+            </Button>
+          </FieldRow>
+        );
+      })}
+      <FieldRow
+        label="Add MCP server"
+        hint="Streamable HTTP endpoint, e.g. http://localhost:8000/mcp"
+      >
+        <input
+          style={{ ...S.input, width: 140 }}
+          value={newMcpName}
+          onChange={(e) => setNewMcpName(e.target.value)}
+          placeholder="Name"
+        />
+        <input
+          style={{ ...S.input, width: 220, marginLeft: 8 }}
+          value={newMcpUrl}
+          onChange={(e) => setNewMcpUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addMcpConnection();
+            }
+          }}
+          placeholder="http://localhost:8000/mcp"
+        />
+        <Button onClick={addMcpConnection} style={{ marginLeft: 8 }}>
+          Add
+        </Button>
+      </FieldRow>
+      <FieldRow label="">
+        <Button
+          onClick={testMcpConnections}
+          disabled={mcpTesting || mcpConnections.length === 0}
+        >
+          {mcpTesting ? "Testing..." : "Test connections"}
+        </Button>
+        {mcpTestResults && !Array.isArray(mcpTestResults) && (
+          <span style={{ ...S.hint, color: stateColors.error, marginLeft: 12 }}>
+            {mcpTestResults.error}
+          </span>
+        )}
       </FieldRow>
 
       <SectionTitle>Settings</SectionTitle>

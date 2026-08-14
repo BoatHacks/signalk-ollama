@@ -12,6 +12,16 @@ export interface OllamaTag {
   name: string;
 }
 
+/** Ollama's tool-calling request shape (`tools: [...]` on /api/chat). */
+export interface OllamaToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+}
+
 export interface PullEvent {
   status: string;
   digest?: string;
@@ -20,13 +30,23 @@ export interface PullEvent {
   error?: string;
 }
 
+/** A model-requested tool invocation, as Ollama reports it on an assistant message. */
+export interface ToolCall {
+  function: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Set on an assistant message that requested tool calls. */
+  tool_calls?: ToolCall[];
 }
 
 export interface ChatChunk {
-  message?: { role: string; content: string };
+  message?: { role: string; content: string; tool_calls?: ToolCall[] };
   done?: boolean;
   eval_count?: number;
   eval_duration?: number;
@@ -123,6 +143,12 @@ export async function pullModel(
   }
 }
 
+export interface ChatStreamOptions {
+  signal?: AbortSignal;
+  /** Tools offered to the model (Ollama tool-calling); omitted when empty. */
+  tools?: OllamaToolDefinition[];
+}
+
 /**
  * Stream a `POST /api/chat`, invoking `onChunk` for each NDJSON line —
  * the plugin's own webapp playground is the one caller; other consumers of
@@ -134,15 +160,20 @@ export async function chatStream(
   model: string,
   messages: ChatMessage[],
   onChunk: (chunk: ChatChunk) => void,
-  signal?: AbortSignal,
+  options: ChatStreamOptions = {},
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: true }),
-      signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        ...(options.tools?.length ? { tools: options.tools } : {}),
+      }),
+      signal: options.signal,
     });
   } catch (err) {
     throw new Error(`chat request failed: ${errMsg(err)}`, { cause: err });

@@ -224,6 +224,10 @@ chatForm.addEventListener("submit", async (e) => {
         if (!line) continue;
         const chunk = JSON.parse(line);
         if (chunk.error) throw new Error(chunk.error);
+        if (chunk.message?.role === "tool") {
+          addBubble("tool", `🔧 ${chunk.message.content}`);
+          continue;
+        }
         if (chunk.message?.content) {
           assistantText += chunk.message.content;
           assistantBubble.textContent = assistantText;
