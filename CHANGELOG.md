@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-14
+
 ### Changed
 
 - `advanced.bind` now defaults to `0.0.0.0` (was `127.0.0.1`) — Ollama is
