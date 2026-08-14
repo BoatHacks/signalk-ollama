@@ -5,6 +5,7 @@ import {
   FakeManager,
   FakeRouter,
   FakeResponse,
+  FakeStreamResponse,
   makeApp,
   ndjsonResponse,
   until,
@@ -26,6 +27,12 @@ function mockFetch() {
       return ndjsonResponse([
         { status: "pulling manifest" },
         { status: "success" },
+      ]);
+    }
+    if (url.endsWith("/api/chat") && method === "POST") {
+      return ndjsonResponse([
+        { message: { role: "assistant", content: "Hi" }, done: false },
+        { message: { role: "assistant", content: "!" }, done: true },
       ]);
     }
     throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -158,5 +165,119 @@ describe("OllamaService", () => {
     const res = new FakeResponse();
     handler({ body: { model: "has space" } }, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it("registerRoutes: POST /api/models/pull logs a failed pull via app.error", async () => {
+    fetchImpl.mockImplementation(
+      async (url: string, init?: { method?: string }) => {
+        if (url.endsWith("/api/version")) {
+          return new Response(JSON.stringify({ version: "0.32.10" }), {
+            status: 200,
+          });
+        }
+        if (url.endsWith("/api/pull") && init?.method === "POST") {
+          return ndjsonResponse([{ error: "model not found" }]);
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({});
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("POST /api/models/pull")!;
+    const res = new FakeResponse();
+    handler({ body: { model: "nonexistent:tag" } }, res);
+    const body = (await res.done) as { error: string };
+    expect(res.statusCode).toBe(500);
+    expect(body.error).toMatch(/model not found/);
+    expect(app.errors.some((e) => e.includes("nonexistent:tag"))).toBe(true);
+  });
+
+  it("registerRoutes: POST /api/chat streams NDJSON chunks and logs an interaction", async () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({});
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("POST /api/chat")!;
+    const res = new FakeStreamResponse();
+    handler(
+      {
+        body: {
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      },
+      res,
+    );
+    await res.done;
+    expect(res.ended).toBe(true);
+    expect(res.headers["Content-Type"]).toBe("application/x-ndjson");
+    const chunks = res.parsedChunks<{ message?: { content: string } }>();
+    expect(chunks.map((c) => c.message?.content)).toEqual(["Hi", "!"]);
+
+    const statusHandler = router.routes.get("GET /api/interactions")!;
+    const statusRes = new FakeResponse();
+    statusHandler({}, statusRes);
+    const body = (await statusRes.done) as {
+      interactions: {
+        model: string;
+        prompt: string;
+        response: string;
+        error: string | null;
+      }[];
+    };
+    expect(body.interactions).toHaveLength(1);
+    expect(body.interactions[0]).toMatchObject({
+      model: "llama3.2:3b",
+      prompt: "hi",
+      response: "Hi!",
+      error: null,
+    });
+  });
+
+  it("registerRoutes: POST /api/chat rejects a missing messages array before streaming", async () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({});
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("POST /api/chat")!;
+    const res = new FakeStreamResponse();
+    handler({ body: { model: "llama3.2:3b" } }, res);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("registerRoutes: POST /api/chat answers 503 while stopped", () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    const handler = router.routes.get("POST /api/chat")!;
+    const res = new FakeStreamResponse();
+    handler(
+      {
+        body: {
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      },
+      res,
+    );
+    expect(res.statusCode).toBe(503);
+  });
+
+  it("registerRoutes: GET /api/interactions answers 503 while stopped", () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    const handler = router.routes.get("GET /api/interactions")!;
+    const res = new FakeResponse();
+    handler({}, res);
+    expect(res.statusCode).toBe(503);
   });
 });

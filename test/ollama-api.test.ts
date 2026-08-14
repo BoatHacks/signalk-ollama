@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  chatStream,
   deleteModel,
   listLocalModels,
   normalizeModelName,
@@ -129,5 +130,73 @@ describe("deleteModel", () => {
     await expect(
       deleteModel("http://127.0.0.1:11434", "llama3.2:3b"),
     ).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe("chatStream", () => {
+  const messages = [{ role: "user" as const, content: "hi" }];
+
+  it("forwards each NDJSON chunk and resolves when the stream ends", async () => {
+    const events = [
+      { message: { role: "assistant", content: "Hel" }, done: false },
+      { message: { role: "assistant", content: "lo" }, done: false },
+      { message: { role: "assistant", content: "" }, done: true },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ndjsonResponse(events)),
+    );
+    const chunks: unknown[] = [];
+    await chatStream("http://127.0.0.1:11434", "llama3.2:3b", messages, (c) =>
+      chunks.push(c),
+    );
+    expect(chunks).toEqual(events);
+  });
+
+  it("rejects on an {error} line even inside a 200 response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ndjsonResponse([{ error: "model not found" }])),
+    );
+    await expect(
+      chatStream(
+        "http://127.0.0.1:11434",
+        "nonexistent:tag",
+        messages,
+        () => undefined,
+      ),
+    ).rejects.toThrow(/model not found/);
+  });
+
+  it("rejects on a non-2xx response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 404 })),
+    );
+    await expect(
+      chatStream(
+        "http://127.0.0.1:11434",
+        "llama3.2:3b",
+        messages,
+        () => undefined,
+      ),
+    ).rejects.toThrow(/HTTP 404/);
+  });
+
+  it("rejects when the underlying fetch throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    );
+    await expect(
+      chatStream(
+        "http://127.0.0.1:11434",
+        "llama3.2:3b",
+        messages,
+        () => undefined,
+      ),
+    ).rejects.toThrow(/ECONNREFUSED/);
   });
 });

@@ -13,6 +13,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `public/assets/icons/`; the full-resolution source is kept at
   `assets/branding/icon-source.png` (not shipped in the npm package) for
   regenerating them later.
+- A standalone webapp (Server → Webapps → Ollama), separate from the plugin
+  config panel: a status dashboard (container/model state, polled live) and
+  an LLM playground — pick a ready model, chat with it, watch the response
+  stream in. Every playground exchange is logged to a "recent interactions"
+  list for the current server session (in-memory only, not persisted).
+  Chat is proxied through the plugin's own backend rather than the browser
+  calling Ollama directly, sidestepping Ollama's lack of a CORS allowlist
+  for the Admin UI's origin and letting the server log what was asked.
+- Plugin router additions backing the webapp: `POST /api/chat` (streaming
+  NDJSON proxy to Ollama's `/api/chat`) and `GET /api/interactions`.
+- `POST /api/models/pull` failures are now logged via the plugin's error
+  log (previously only visible in the HTTP response body).
 
 ## [0.1.0] - 2026-08-13
 

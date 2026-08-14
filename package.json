@@ -35,6 +35,7 @@
   "keywords": [
     "signalk-node-server-plugin",
     "signalk-plugin-configurator",
+    "signalk-webapp",
     "signalk-category-utility",
     "ollama",
     "llm",

@@ -118,6 +118,25 @@ Once ready, Ollama is a plain HTTP API server at `http://<host>:<port>`
   Home Assistant's Ollama integration — can use it the same way. Ollama has
   no built-in authentication: only expose `0.0.0.0` on trusted networks.
 
+## The webapp
+
+Besides the plugin config panel, signalk-ollama ships a standalone webapp —
+find it under Server → Webapps → **Ollama** (or the App Store's webapps
+list). Two views:
+
+- **Status** — the same container/model state as the config panel's status
+  card, in a dedicated dashboard, polled every 5s.
+- **Playground** — pick a ready model, chat with it, watch the response
+  stream token by token. Below the chat, **recent interactions** lists past
+  exchanges from this server session (model, prompt, response, duration) —
+  kept in memory only, cleared on a server restart, not written to disk.
+
+The playground talks to Ollama through the plugin's own backend
+(`POST /api/chat`, proxying to Ollama's `/api/chat`) rather than the browser
+calling Ollama directly — Ollama has no CORS allowlist for the Admin UI's
+origin, so a direct browser call would likely be blocked, and proxying
+through the backend is what makes the interaction log possible at all.
+
 ## Development
 
 ```bash

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ollama — Signal K</title>
+    <link rel="icon" href="favicon.ico" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-icon" src="assets/icons/icon-48x48.png" alt="" />
+        <span class="brand-name">Ollama</span>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button
+          class="tab active"
+          role="tab"
+          aria-selected="true"
+          data-tab="status"
+        >
+          Status
+        </button>
+        <button
+          class="tab"
+          role="tab"
+          aria-selected="false"
+          data-tab="playground"
+        >
+          Playground
+        </button>
+      </nav>
+      <div class="conn" id="conn" title="Connection state">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span id="conn-label">Checking…</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="panel-status" class="panel" role="tabpanel">
+        <div class="grid">
+          <article class="card">
+            <h2>Container</h2>
+            <dl id="container-info" class="kv">
+              <dt>Status</dt>
+              <dd id="c-status">—</dd>
+              <dt>Image</dt>
+              <dd id="c-image">—</dd>
+              <dt>Address</dt>
+              <dd id="c-uri">—</dd>
+              <dt>Runtime state</dt>
+              <dd id="c-runtime">—</dd>
+            </dl>
+          </article>
+
+          <article class="card">
+            <h2>Models</h2>
+            <ul id="model-list" class="model-list">
+              <li class="empty">No models configured.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section id="panel-playground" class="panel hidden" role="tabpanel">
+        <div class="playground">
+          <div class="chat-column">
+            <div class="chat-controls">
+              <label>
+                Model
+                <select id="model-select"></select>
+              </label>
+              <details class="system-prompt">
+                <summary>System prompt</summary>
+                <textarea
+                  id="system-prompt"
+                  rows="2"
+                  placeholder="Optional — sets the assistant's behavior for this conversation."
+                ></textarea>
+              </details>
+              <button id="clear-chat" class="btn-secondary" type="button">
+                Clear conversation
+              </button>
+            </div>
+
+            <div id="chat-log" class="chat-log">
+              <p class="chat-hint">
+                Pick a ready model above and send a message to try it out.
+              </p>
+            </div>
+
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="chat-input"
+                rows="2"
+                placeholder="Ask something…"
+                required
+              ></textarea>
+              <button id="chat-send" type="submit">Send</button>
+              <button id="chat-stop" type="button" class="btn-secondary hidden">
+                Stop
+              </button>
+            </form>
+          </div>
+
+          <aside class="interactions-column">
+            <h2>Recent interactions</h2>
+            <p class="hint">
+              Logged for this server session only — not saved to disk.
+            </p>
+            <ul id="interactions-list" class="interactions-list">
+              <li class="empty">No interactions yet.</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

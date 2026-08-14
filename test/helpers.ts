@@ -197,6 +197,58 @@ export class FakeResponse {
   }
 }
 
+/**
+ * Express-response stand-in that also supports the streaming surface
+ * (setHeader/write/end) the /api/chat route uses. `chunks` collects every
+ * write() call; `done` resolves on json() (the early-error path) or end()
+ * (the normal streamed-to-completion path) — whichever comes first.
+ */
+export class FakeStreamResponse {
+  statusCode = 200;
+  headers: Record<string, string> = {};
+  chunks: string[] = [];
+  body: unknown;
+  ended = false;
+  private resolveDone!: () => void;
+  done = new Promise<void>((resolve) => {
+    this.resolveDone = resolve;
+  });
+
+  status(code: number) {
+    this.statusCode = code;
+    return this;
+  }
+
+  json(body: unknown) {
+    this.body = body;
+    this.resolveDone();
+    return this;
+  }
+
+  setHeader(name: string, value: string) {
+    this.headers[name] = value;
+  }
+
+  write(chunk: string) {
+    this.chunks.push(chunk);
+    return true;
+  }
+
+  end() {
+    this.ended = true;
+    this.resolveDone();
+  }
+
+  /** Parsed NDJSON from every write() call, in order. */
+  parsedChunks<T = unknown>(): T[] {
+    return this.chunks
+      .join("")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => JSON.parse(line) as T);
+  }
+}
+
 /** Build a fetch Response whose body streams the given NDJSON objects. */
 export function ndjsonResponse(
   events: unknown[],

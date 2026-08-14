@@ -14,27 +14,49 @@ container" archetype as
 [signalk-piper](https://github.com/hoeken/signalk-piper) — read one of those
 for a second example of the pattern before changing the lifecycle code here.
 
-This plugin does not itself do anything with the LLM (no chat UI, no
-pipeline). It exists purely to make sure a local Ollama server is running
-with the right models, for other services to call.
+The plugin's core job is still just making sure a local Ollama server is
+running with the right models, for other services to call — it does not do
+anything with the LLM on their behalf. The one exception is the bundled
+webapp's playground (see below): a thin, in-repo consumer that exists to
+let an operator test the server and see recent activity, not a pipeline
+other plugins are expected to build on.
 
 ## Layout
 
 ```
 src/
   config.ts        settings schema, defaults, pure settings → ContainerConfig
-  ollama-api.ts     minimal Ollama HTTP client: list/pull/delete models
+  ollama-api.ts     Ollama HTTP client: list/pull/delete models, chat proxy
   service.ts        OllamaService — container lifecycle, model reconcile, routes
   index.ts          Signal K plugin factory wiring service.ts to the app
   configpanel/       Admin UI panel (Module Federation remote, no JSX in dist)
 test/               vitest suites, fully mocked (no real containers/network)
-public/assets/icons/  checked-in App Store/favicon icons (16-512px), NOT
-                      webpack output — see the .gitignore comment before
-                      broadening any "ignore public/" pattern
+public/
+  index.html, app.js, styles.css   the standalone webapp (status + playground)
+                                    — vanilla JS, no build step, matches
+                                    signalk-wyoming's public/ webapp pattern
+  assets/icons/     checked-in App Store/favicon icons (16-512px), NOT
+                     webpack output — see the .gitignore comment before
+                     broadening any "ignore public/" pattern
+  remoteEntry.js, *.mjs   webpack output for configpanel/ — generated,
+                          gitignored, do NOT hand-edit or commit
 assets/branding/    full-res icon source, not shipped in the npm package
-                      (not in package.json "files"); regenerate the sizes
-                      under public/assets/icons/ from this if the logo changes
+                    (not in package.json "files"); regenerate the sizes
+                    under public/assets/icons/ from this if the logo changes
 ```
+
+Two mount points, two prefixes — don't mix them up when adding a route:
+
+- The **plugin backend** (`registerRoutes` in `service.ts`) is served under
+  `/plugins/signalk-ollama/...` — this is what `public/app.js` and the
+  config panel both call for JSON APIs.
+- **Static files** in `public/` (the webapp's `index.html`/`app.js`/
+  `styles.css`, and the config panel's `remoteEntry.js`) are served under
+  `/signalk-ollama/...` (the bare package name — see `mountWebModules` in
+  signalk-server's `webapps.ts`) via the `signalk-webapp` and
+  `signalk-plugin-configurator` package.json keywords respectively. Both
+  keywords point at the same `public/` directory; nothing here needs two
+  separate build outputs.
 
 ## Commands
 
@@ -95,6 +117,29 @@ with `npm ci` in CI, `npm install` locally when `package.json` changes.
   logic elsewhere that assumes a stricter contract than "non-empty,
   no-whitespace string".
 
+- **The playground proxies chat through the plugin backend instead of the
+  browser calling Ollama directly.** Two reasons, both load-bearing: Ollama
+  has no CORS allowlist for the Admin UI's origin (a direct browser fetch
+  would likely be blocked), and proxying is what lets the server see the
+  exchange at all to log it as an "interaction". Don't "simplify" the
+  playground into a direct browser→Ollama fetch — it would both break under
+  CORS and silently stop populating recent interactions.
+
+- **`/api/chat`'s handler casts `ResponseLike` to a wider `StreamableResponse`**
+  (`setHeader`/`write`/`end`) because `signalk-container-helper`'s router
+  type only promises `status()`/`json()` — true for every other route here,
+  but chat needs to stream. The real Express response supports this at
+  runtime; the cast is safe, just don't assume `ResponseLike` alone is
+  enough if you add another streaming route.
+
+- **A streaming response can't fall back to a clean HTTP error status once
+  bytes have gone out.** `/api/chat`'s error handling branches on whether
+  anything was already written: nothing yet → `res.status(500).json(...)`
+  like normal; something written → an in-stream `{error}` line instead,
+  since headers are already committed. `public/app.js`'s reader loop treats
+  an `{error}` line the same as a thrown fetch — keep both sides of that
+  contract in sync if you touch either.
+
 ## Traps
 
 - **`PINNED_TAG` in `config.ts` goes stale.** It's a real Docker Hub tag
@@ -112,6 +157,25 @@ with `npm ci` in CI, `npm install` locally when `package.json` changes.
   vs. omitted, or non-deterministic ordering in `models`) looks like drift
   on every single start. `config.test.ts`'s "is pure" test guards this —
   don't weaken it.
+
+- **Recent interactions are in-memory only, capped at `MAX_INTERACTIONS`
+  (50) with truncated text (`INTERACTION_TEXT_LIMIT`, 4000 chars).** This
+  is deliberate, not a shortcut to fix later — nothing here should grow
+  into a persisted chat history or transcript export without a real
+  decision about retention/PII first. If a future change needs history to
+  survive a restart, that's a new design conversation, not a one-line
+  tweak to `service.ts`.
+
+- **`public/app.js`/`index.html`/`styles.css` have no build step, and
+  ESLint/Prettier don't check `app.js`** (`eslint.config.js` only covers
+  `**/*.ts` and `src/configpanel/**/*.jsx`; ordinary `.js` files are
+  outside its `files` globs). Nothing catches a typo there except actually
+  loading the page. There's no headless-browser test harness set up in
+  this repo for it — verify changes by serving `public/` and clicking
+  through, or write a throwaway Playwright script against the pre-installed
+  Chromium (`/opt/pw-browsers`) the way the webapp/playground/interactions
+  feature was verified before landing, matching the version-pinned
+  `chrome-linux/chrome` binary rather than `npx playwright install`.
 
 - **Never mix a version bump into a feature or fix PR.** Version bumps get
   their own commit so the history stays bisectable.

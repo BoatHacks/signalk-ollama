@@ -27,9 +27,11 @@ import {
   type OllamaSettings,
 } from "./config.js";
 import {
+  chatStream,
   listLocalModels,
   normalizeModelName,
   pullModel,
+  type ChatMessage,
   type PullEvent,
 } from "./ollama-api.js";
 
@@ -46,6 +48,38 @@ export interface ModelState {
   percent?: number;
   message?: string;
   error?: string;
+}
+
+/** A completed (or failed) playground chat exchange, for the "recent interactions" list. */
+export interface InteractionRecord {
+  id: string;
+  model: string;
+  /** Last user message, truncated to INTERACTION_TEXT_LIMIT. */
+  prompt: string;
+  /** Assistant reply so far (full text even on a mid-stream failure), truncated. */
+  response: string;
+  startedAt: string;
+  durationMs: number;
+  error: string | null;
+}
+
+/** In-memory only — "recent" means this server process's uptime, not persisted. */
+const MAX_INTERACTIONS = 50;
+/** Caps memory use from pathologically long prompts/responses in the log. */
+const INTERACTION_TEXT_LIMIT = 4_000;
+
+function truncate(text: string): string {
+  return text.length > INTERACTION_TEXT_LIMIT
+    ? `${text.slice(0, INTERACTION_TEXT_LIMIT)}… [truncated]`
+    : text;
+}
+
+/** Minimal Express-response surface the streaming /api/chat route needs
+ * beyond signalk-container-helper's status()/json()-only ResponseLike. */
+interface StreamableResponse extends ResponseLike {
+  setHeader?(name: string, value: string): void;
+  write?(chunk: string): boolean;
+  end?(): void;
 }
 
 /** The subset of the Signal K plugin app surface this plugin uses. */
@@ -79,6 +113,10 @@ export class OllamaService {
   private modelStates = new Map<string, ModelState>();
   private lastStatusLineAt = 0;
   private pullAbort: AbortController | null = null;
+  /** Newest first, capped at MAX_INTERACTIONS. Survives plugin restarts
+   * within the same server process — cleared only by a full server restart. */
+  private interactions: InteractionRecord[] = [];
+  private nextInteractionId = 1;
 
   constructor(app: ServiceApp, options: { fetchImpl?: FetchLike } = {}) {
     this.app = app;
@@ -298,6 +336,65 @@ export class OllamaService {
     }
   }
 
+  private recordInteraction(entry: Omit<InteractionRecord, "id">): void {
+    this.interactions.unshift({
+      id: String(this.nextInteractionId++),
+      ...entry,
+    });
+    if (this.interactions.length > MAX_INTERACTIONS) {
+      this.interactions.length = MAX_INTERACTIONS;
+    }
+  }
+
+  /**
+   * Stream one playground chat turn against Ollama's /api/chat, forwarding
+   * each NDJSON chunk to `onChunk` and logging the exchange (success or
+   * failure) to the interactions list once the stream ends.
+   */
+  private async chat(
+    model: string,
+    messages: ChatMessage[],
+    onChunk: (chunk: {
+      message?: { role: string; content: string };
+      done?: boolean;
+    }) => void,
+  ): Promise<void> {
+    if (!this.running || this.uri === null) {
+      throw new Error("Ollama is not running");
+    }
+    const uri = this.uri;
+    const lastUserMessage =
+      [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const startedAt = new Date().toISOString();
+    const startedAtMs = Date.now();
+    let assistantText = "";
+    try {
+      await chatStream(uri, model, messages, (chunk) => {
+        if (chunk.message?.content) assistantText += chunk.message.content;
+        onChunk(chunk);
+      });
+      this.recordInteraction({
+        model,
+        prompt: truncate(lastUserMessage),
+        response: truncate(assistantText),
+        startedAt,
+        durationMs: Date.now() - startedAtMs,
+        error: null,
+      });
+    } catch (err) {
+      const message = errMsg(err);
+      this.recordInteraction({
+        model,
+        prompt: truncate(lastUserMessage),
+        response: truncate(assistantText),
+        startedAt,
+        durationMs: Date.now() - startedAtMs,
+        error: message,
+      });
+      throw err;
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Router
   // ---------------------------------------------------------------------
@@ -424,7 +521,64 @@ export class OllamaService {
       void this.pullOne(model)
         .then(() => res.json({ success: true, model }))
         .catch((err: unknown) => {
-          res.status(500).json({ error: errMsg(err) });
+          const message = errMsg(err);
+          this.app.error(`pulling model ${model} failed: ${message}`);
+          res.status(500).json({ error: message });
+        });
+    });
+
+    statusRouter.get(
+      "/api/interactions",
+      (_req: unknown, res: ResponseLike) => {
+        if (!guardRunning(res)) return;
+        res.json({ interactions: this.interactions });
+      },
+    );
+
+    // Streaming NDJSON proxy for the webapp's playground — see chat().
+    // Not registered on statusRouter: this both reads (interactions) and
+    // writes (drives a live model), so it stays admin-only like the other
+    // POST routes.
+    router.post("/api/chat", (req: unknown, res: ResponseLike) => {
+      if (!guardRunning(res)) return;
+      const body = (req as { body?: { model?: unknown; messages?: unknown } })
+        .body;
+      const model = body?.model;
+      const messages = body?.messages;
+      if (
+        !isValidModelName(model) ||
+        !Array.isArray(messages) ||
+        messages.length === 0 ||
+        !messages.every(isChatMessage)
+      ) {
+        res.status(400).json({
+          error: "model and a non-empty messages array are required",
+        });
+        return;
+      }
+      if (this.uri === null) {
+        res.status(503).json({ error: "Ollama is not ready yet" });
+        return;
+      }
+      const stream = res as StreamableResponse;
+      stream.setHeader?.("Content-Type", "application/x-ndjson");
+      let wroteAny = false;
+      this.chat(model, messages, (chunk) => {
+        wroteAny = true;
+        stream.write?.(`${JSON.stringify(chunk)}\n`);
+      })
+        .then(() => stream.end?.())
+        .catch((err: unknown) => {
+          const message = errMsg(err);
+          this.app.error(`chat with ${model} failed: ${message}`);
+          // Headers may already be sent (streaming responses can't 500
+          // partway through) — fall back to an in-stream error line.
+          if (wroteAny) {
+            stream.write?.(`${JSON.stringify({ error: message })}\n`);
+            stream.end?.();
+          } else {
+            res.status(500).json({ error: message });
+          }
         });
     });
   }
@@ -448,4 +602,12 @@ function compareSemverDesc(a: string, b: string): number {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function isChatMessage(v: unknown): v is ChatMessage {
+  return (
+    isObject(v) &&
+    (v.role === "system" || v.role === "user" || v.role === "assistant") &&
+    typeof v.content === "string"
+  );
 }
