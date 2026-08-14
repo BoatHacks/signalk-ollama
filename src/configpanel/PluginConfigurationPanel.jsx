@@ -34,11 +34,14 @@ const DEFAULT_PORT = 11434;
 /** Mirrors defaultSettings() in ../config.ts. */
 const DEFAULTS = {
   imageTag: "auto",
+  models: ["llama3.2:3b"],
   bind: "0.0.0.0",
   memoryLimit: "4g",
   restartPolicy: "unless-stopped",
   gpu: "none",
 };
+/** ~2.0 GB download — shown so users know what they're about to pull. */
+const DEFAULT_MODEL_SIZE = "~2.0 GB";
 
 function modelStatusLabel(state) {
   if (!state) return "not pulled";
@@ -64,7 +67,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
   const adv = cfg.advanced || {};
 
   const [models, setModels] = useState(
-    Array.isArray(cfg.models) ? cfg.models : [],
+    Array.isArray(cfg.models) ? cfg.models : DEFAULTS.models,
   );
   const [newModel, setNewModel] = useState("");
   const [imageTag, setImageTag] = useState(cfg.imageTag || DEFAULTS.imageTag);
@@ -175,6 +178,16 @@ export default function PluginConfigurationPanel({ configuration, save }) {
           pull/use models via its API directly.
         </div>
       )}
+      {models.length > 0 &&
+        !models.some((name) => modelStates[name]?.status === "ready") && (
+          <div style={{ ...S.hint, color: stateColors.warn }}>
+            Ollama is not usable yet — no model has finished pulling. Models
+            download automatically on start, or click "Pull now" below to start
+            immediately. The default model, llama3.2:3b, is a{" "}
+            {DEFAULT_MODEL_SIZE} download; larger models can take a while
+            depending on your connection.
+          </div>
+        )}
       {models.map((name) => {
         const st2 = modelStates[name];
         return (
@@ -197,7 +210,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
       })}
       <FieldRow
         label="Add model"
-        hint="e.g. llama3.2:3b — browse ollama.com/library"
+        hint="e.g. llama3.2:3b (~2.0 GB) — sizes vary by model, browse ollama.com/library"
       >
         <input
           style={{ ...S.input, width: 220 }}

@@ -43,6 +43,7 @@ const cUri = document.getElementById("c-uri");
 const cRuntime = document.getElementById("c-runtime");
 const modelList = document.getElementById("model-list");
 const modelSelect = document.getElementById("model-select");
+const pullPrompt = document.getElementById("pull-prompt");
 
 let lastReadyModels = [];
 
@@ -93,6 +94,7 @@ function renderStatus(data) {
   }
 
   const ready = names.filter((n) => models[n]?.status === "ready");
+  pullPrompt.classList.toggle("hidden", ready.length > 0);
   if (JSON.stringify(ready) !== JSON.stringify(lastReadyModels)) {
     lastReadyModels = ready;
     const current = modelSelect.value;

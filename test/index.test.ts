@@ -28,6 +28,11 @@ beforeEach(() => {
       if (url.endsWith("/api/tags")) {
         return new Response(JSON.stringify({ models: [] }), { status: 200 });
       }
+      if (url.endsWith("/api/pull")) {
+        return new Response(JSON.stringify({ status: "success" }) + "\n", {
+          status: 200,
+        });
+      }
       throw new Error(`unexpected fetch: ${url}`);
     }),
   );

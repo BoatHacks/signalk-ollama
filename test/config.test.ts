@@ -17,7 +17,7 @@ describe("applyDefaults", () => {
     expect(applyDefaults({})).toEqual(defaultSettings());
     const d = defaultSettings();
     expect(d.imageTag).toBe("auto");
-    expect(d.models).toEqual([]);
+    expect(d.models).toEqual(["llama3.2:3b"]);
     expect(d.port).toBe(11434);
     expect(d.advanced.bind).toBe("0.0.0.0");
     expect(d.advanced.memoryLimit).toBe("4g");
@@ -48,10 +48,15 @@ describe("applyDefaults", () => {
       advanced: { bind: "10.0.0.1", restartPolicy: "on-failure", gpu: "intel" },
     });
     expect(settings.port).toBe(11434);
-    expect(settings.models).toEqual([]);
+    expect(settings.models).toEqual(["llama3.2:3b"]);
     expect(settings.advanced.bind).toBe("0.0.0.0");
     expect(settings.advanced.restartPolicy).toBe("unless-stopped");
     expect(settings.advanced.gpu).toBe("none");
+  });
+
+  it("respects an explicit empty models list (not just the default)", () => {
+    const settings = applyDefaults({ models: [] });
+    expect(settings.models).toEqual([]);
   });
 
   it("sanitizes the models list: trims, dedupes, drops invalid entries", () => {
@@ -159,6 +164,7 @@ describe("CONFIG_SCHEMA", () => {
     const props = CONFIG_SCHEMA.properties;
     const d = defaultSettings();
     expect(props.imageTag.default).toBe(d.imageTag);
+    expect(props.models.default).toEqual(d.models);
     expect(props.port.default).toBe(d.port);
     const adv = props.advanced.properties;
     expect(adv.bind.default).toBe(d.advanced.bind);

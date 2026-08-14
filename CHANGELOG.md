@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `models` now defaults to `["llama3.2:3b"]` (was `[]`) — Ollama pulls a
+  small, usable model on first start instead of running bare. Clear the
+  list in the config panel to opt back out.
+
+### Added
+
+- The config panel and standalone webapp now show a warning banner while
+  none of the configured models have finished pulling, since Ollama can't
+  answer chat/generate requests until then, along with the default model's
+  approximate download size (~2.0 GB) and a size note when adding others.
+
 ## [0.2.1] - 2026-08-14
 
 ### Changed

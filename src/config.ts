@@ -44,10 +44,13 @@ export interface OllamaSettings {
   advanced: AdvancedSettings;
 }
 
+/** ~2.0 GB download — small enough to be a sane out-of-the-box default. */
+export const DEFAULT_MODEL = "llama3.2:3b";
+
 export function defaultSettings(): OllamaSettings {
   return {
     imageTag: "auto",
-    models: [],
+    models: [DEFAULT_MODEL],
     port: DEFAULT_PORT,
     advanced: {
       // 0.0.0.0 by default: Ollama exists to be called by sibling
@@ -130,7 +133,9 @@ export function applyDefaults(raw: unknown): OllamaSettings {
 
   return {
     imageTag,
-    models: sanitizeModels(raw.models),
+    models: Array.isArray(raw.models)
+      ? sanitizeModels(raw.models)
+      : defaults.models,
     port,
     advanced: { bind, memoryLimit, restartPolicy, gpu },
   };
@@ -218,13 +223,16 @@ export const CONFIG_SCHEMA = {
       type: "array",
       title: "Models to pull",
       items: { type: "string" },
-      default: [],
+      default: [DEFAULT_MODEL],
       description:
-        "Ollama models to download and keep ready (e.g. llama3.2:3b, " +
-        "qwen2.5:7b). Pulled once on first start and re-checked on every " +
-        "restart; leave empty to just run the bare server and pull models " +
-        "yourself (ollama pull, or another service's API calls). Browse " +
-        "models at https://ollama.com/library.",
+        `Ollama models to download and keep ready. Defaults to ${DEFAULT_MODEL} ` +
+        "(~2.0 GB download) so Ollama is usable out of the box; add others " +
+        "(e.g. qwen2.5:7b, ~4.7 GB) or clear the list to run a bare server " +
+        "and pull models yourself instead (ollama pull, or another " +
+        "service's API calls). Ollama cannot answer chat/generate requests " +
+        "for a model until its pull finishes — watch the status above or " +
+        'use "Pull now". Browse models and their sizes at ' +
+        "https://ollama.com/library.",
     },
     imageTag: {
       type: "string",

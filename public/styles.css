@@ -240,6 +240,26 @@ main {
   background: var(--amber);
 }
 
+.pull-prompt {
+  background: rgba(201, 134, 42, 0.12);
+  border: 1px solid var(--warn);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.pull-prompt.hidden {
+  display: none;
+}
+
+.pull-prompt code {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 .playground {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);

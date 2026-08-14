@@ -45,15 +45,15 @@ check/apply, a version dropdown fed by Docker Hub, a model list editor with
 per-model pull progress, and the settings below. On servers without
 custom-panel support you get a plain settings form with the same options.
 
-| Setting                  | Default          | Notes                                                                                                                                                                                                                                 |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `models`                 | `[]`             | Models to pull automatically, e.g. `llama3.2:3b`. Re-checked on every start; already-present models are skipped. Empty runs a bare server — pull models yourself with `ollama pull` or another service's API calls.                   |
-| `imageTag`               | `auto`           | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                                         |
-| `port`                   | `11434`          | Host TCP port Ollama is published on (default `advanced.bind` is `0.0.0.0`, so this applies out of the box). Ignored if you switch `advanced.bind` to `127.0.0.1` — signalk-container then assigns a host port automatically instead. |
-| `advanced.bind`          | `0.0.0.0`        | `0.0.0.0` (default) publishes Ollama on all interfaces so sibling containers and other machines on the LAN can call it directly — see "Security". `127.0.0.1` restricts it to this machine only.                                      |
-| `advanced.memoryLimit`   | `4g`             | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                                              |
-| `advanced.restartPolicy` | `unless-stopped` | Container runtime restart policy.                                                                                                                                                                                                     |
-| `advanced.gpu`           | `none`           | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                                        |
+| Setting                  | Default           | Notes                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `models`                 | `["llama3.2:3b"]` | Models to pull automatically. Defaults to `llama3.2:3b` (~2.0 GB) so Ollama is usable out of the box. Re-checked on every start; already-present models are skipped. Clear the list to run a bare server — pull models yourself with `ollama pull` or another service's API calls. Ollama can't answer chat/generate requests for a model until its pull finishes — see "Pulling models". |
+| `imageTag`               | `auto`            | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                                                                                                                                                                                             |
+| `port`                   | `11434`           | Host TCP port Ollama is published on (default `advanced.bind` is `0.0.0.0`, so this applies out of the box). Ignored if you switch `advanced.bind` to `127.0.0.1` — signalk-container then assigns a host port automatically instead.                                                                                                                                                     |
+| `advanced.bind`          | `0.0.0.0`         | `0.0.0.0` (default) publishes Ollama on all interfaces so sibling containers and other machines on the LAN can call it directly — see "Security". `127.0.0.1` restricts it to this machine only.                                                                                                                                                                                          |
+| `advanced.memoryLimit`   | `4g`              | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                                                                                                                                                                                                  |
+| `advanced.restartPolicy` | `unless-stopped`  | Container runtime restart policy.                                                                                                                                                                                                                                                                                                                                                         |
+| `advanced.gpu`           | `none`            | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                                                                                                                                                                                            |
 
 ### Sizing
 
@@ -96,12 +96,21 @@ network then can't either) or firewall port 11434 at the network level.
 
 ## Pulling models
 
+**Ollama isn't usable until at least one model finishes pulling** — the
+config panel and webapp both call this out with a banner while none of your
+configured models are `ready`. By default that's just `llama3.2:3b`
+(~2.0 GB); the first start downloads it automatically, and both the panel
+and webapp let you watch progress.
+
 Add model names in the config panel (or the `models` array) and save —
 Signal K restarts the plugin, which pulls anything not already present. Pull
 progress shows in the plugin status line and per-model in the config panel;
 a bad model name fails that one model without blocking the others. Add a
 model later via the panel's "Add model" + "Pull now" without waiting for a
-restart, or remove one you no longer want.
+restart, or remove one you no longer want. Model sizes vary widely (roughly
+1–5 GB for small/medium models, more for large ones) — check the size shown
+on [ollama.com/library](https://ollama.com/library) before adding one on a
+slow or metered connection.
 
 Pulls happen over the Ollama API (`/api/pull`) — the same thing `ollama pull
 <model>` does on the CLI, but driven by the plugin so it survives across
