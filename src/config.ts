@@ -50,7 +50,12 @@ export function defaultSettings(): OllamaSettings {
     models: [],
     port: DEFAULT_PORT,
     advanced: {
-      bind: "127.0.0.1",
+      // 0.0.0.0 by default: Ollama exists to be called by sibling
+      // containers (signalk-whisper, signalk-wyoming, signalk-piper) and
+      // other services on the boat, not just Signal K itself — loopback-only
+      // networking would make it unreachable for its actual purpose out of
+      // the box.
+      bind: "0.0.0.0",
       memoryLimit: "4g",
       restartPolicy: "unless-stopped",
       gpu: "none",
@@ -106,7 +111,10 @@ export function applyDefaults(raw: unknown): OllamaSettings {
     raw.port <= 65535
       ? raw.port
       : defaults.port;
-  const bind = adv.bind === "0.0.0.0" ? "0.0.0.0" : defaults.advanced.bind;
+  const bind =
+    adv.bind === "0.0.0.0" || adv.bind === "127.0.0.1"
+      ? adv.bind
+      : defaults.advanced.bind;
   const memoryLimit =
     typeof adv.memoryLimit === "string" && adv.memoryLimit.trim() !== ""
       ? adv.memoryLimit.trim()
@@ -248,13 +256,14 @@ export const CONFIG_SCHEMA = {
           type: "string",
           title: "Bind address",
           enum: ["127.0.0.1", "0.0.0.0"],
-          default: "127.0.0.1",
+          default: "0.0.0.0",
           description:
-            "127.0.0.1 (default) keeps Ollama reachable only from this " +
-            "machine. 0.0.0.0 publishes it on all interfaces so sibling " +
-            "containers (signalk-whisper, signalk-wyoming, signalk-piper) " +
-            "or other machines on the LAN can call it directly. The Ollama " +
-            "API has no authentication: only expose it on trusted networks.",
+            "0.0.0.0 (default) publishes Ollama on all interfaces so " +
+            "sibling containers (signalk-whisper, signalk-wyoming, " +
+            "signalk-piper) and other machines on the LAN can call it " +
+            "directly — the reason this plugin exists. 127.0.0.1 restricts " +
+            "it to this machine only. The Ollama API has no authentication: " +
+            "only run it on trusted networks.",
         },
         memoryLimit: {
           type: "string",

@@ -34,7 +34,7 @@ const DEFAULT_PORT = 11434;
 /** Mirrors defaultSettings() in ../config.ts. */
 const DEFAULTS = {
   imageTag: "auto",
-  bind: "127.0.0.1",
+  bind: "0.0.0.0",
   memoryLimit: "4g",
   restartPolicy: "unless-stopped",
   gpu: "none",
@@ -244,18 +244,20 @@ export default function PluginConfigurationPanel({ configuration, save }) {
           label="Bind address"
           hint={
             bind === "0.0.0.0"
-              ? "LAN/sibling-container reachable — the Ollama API has no authentication, firewall accordingly"
-              : "only Signal K can reach the service"
+              ? "reachable by sibling containers and the LAN — the Ollama API has no authentication, only run this on trusted networks"
+              : "restricted to this machine only — sibling containers (signalk-whisper, signalk-wyoming, signalk-piper) will not be able to reach it"
           }
-          hintColor={bind === "0.0.0.0" ? stateColors.warn : undefined}
+          hintColor={bind === "0.0.0.0" ? undefined : stateColors.warn}
         >
           <select
             style={S.select}
             value={bind}
             onChange={(e) => setBind(e.target.value)}
           >
-            <option value="127.0.0.1">127.0.0.1 (recommended)</option>
-            <option value="0.0.0.0">0.0.0.0 (all interfaces)</option>
+            <option value="0.0.0.0">
+              0.0.0.0 (recommended — all interfaces)
+            </option>
+            <option value="127.0.0.1">127.0.0.1 (this machine only)</option>
           </select>
         </FieldRow>
         <FieldRow

@@ -45,15 +45,15 @@ check/apply, a version dropdown fed by Docker Hub, a model list editor with
 per-model pull progress, and the settings below. On servers without
 custom-panel support you get a plain settings form with the same options.
 
-| Setting                  | Default          | Notes                                                                                                                                                                                                               |
-| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `models`                 | `[]`             | Models to pull automatically, e.g. `llama3.2:3b`. Re-checked on every start; already-present models are skipped. Empty runs a bare server — pull models yourself with `ollama pull` or another service's API calls. |
-| `imageTag`               | `auto`           | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                       |
-| `port`                   | `11434`          | Host TCP port — only used with `advanced.bind: 0.0.0.0`, where the service is published on exactly this port. With the default loopback networking a host port is assigned automatically.                           |
-| `advanced.bind`          | `127.0.0.1`      | `127.0.0.1` keeps Ollama reachable only from this machine. `0.0.0.0` publishes it on all interfaces so sibling containers or other machines on the LAN can call it directly. See Security.                          |
-| `advanced.memoryLimit`   | `4g`             | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                            |
-| `advanced.restartPolicy` | `unless-stopped` | Container runtime restart policy.                                                                                                                                                                                   |
-| `advanced.gpu`           | `none`           | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                      |
+| Setting                  | Default          | Notes                                                                                                                                                                                                                                 |
+| ------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `models`                 | `[]`             | Models to pull automatically, e.g. `llama3.2:3b`. Re-checked on every start; already-present models are skipped. Empty runs a bare server — pull models yourself with `ollama pull` or another service's API calls.                   |
+| `imageTag`               | `auto`           | `auto` runs the pinned, tested upstream release (**0.32.10**) and follows plugin updates. Ignored (a `-rocm` variant is used instead) when GPU mode is `amd`.                                                                         |
+| `port`                   | `11434`          | Host TCP port Ollama is published on (default `advanced.bind` is `0.0.0.0`, so this applies out of the box). Ignored if you switch `advanced.bind` to `127.0.0.1` — signalk-container then assigns a host port automatically instead. |
+| `advanced.bind`          | `0.0.0.0`        | `0.0.0.0` (default) publishes Ollama on all interfaces so sibling containers and other machines on the LAN can call it directly — see "Security". `127.0.0.1` restricts it to this machine only.                                      |
+| `advanced.memoryLimit`   | `4g`             | Hard container memory cap (swap capped to the same value). Size it to your largest model — see "Sizing".                                                                                                                              |
+| `advanced.restartPolicy` | `unless-stopped` | Container runtime restart policy.                                                                                                                                                                                                     |
+| `advanced.gpu`           | `none`           | `none` (CPU), `amd` (ROCm), or `nvidia` (best-effort). See "GPU acceleration".                                                                                                                                                        |
 
 ### Sizing
 
@@ -83,6 +83,17 @@ mid-generation. On a Pi 4/5 or small NUC, stick to models in the 1B–3B range
   [dirkwa/signalk-container](https://github.com/dirkwa/signalk-container) for
   first-class `--gpus`/CDI support.
 
+### Security
+
+The Ollama API has **no authentication** — anyone who can reach the port can
+use the model (and, on some builds, manage what's pulled). The default
+`advanced.bind: 0.0.0.0` publishes it on every interface on the host, which
+is what lets sibling containers and other boat systems call it — that's the
+point of running it. If your boat's network isn't trusted (marina wifi,
+guests, an exposed router), either set `advanced.bind` to `127.0.0.1` (only
+Signal K's own host loopback can reach it — sibling containers on a separate
+network then can't either) or firewall port 11434 at the network level.
+
 ## Pulling models
 
 Add model names in the config panel (or the `models` array) and save —
@@ -103,12 +114,14 @@ connectivity, a never-downloaded model cannot load.
 ## Using it from other software
 
 Once ready, Ollama is a plain HTTP API server at `http://<host>:<port>`
-(normally `http://127.0.0.1:11434`):
+(normally `http://<boat-ip>:11434` — published on all interfaces by
+default, see "Security"):
 
-- **Other Signal K plugins on the same box** (bare-metal or containerized)
-  can reach it via loopback with the default settings, or set
-  `advanced.bind: 0.0.0.0` if they run in a separate container and need a
-  published port.
+- **Other Signal K plugins and sibling containers** (signalk-whisper,
+  signalk-wyoming, signalk-piper, or anything else) reach it at the host's
+  address and port — the default `advanced.bind: 0.0.0.0` is what makes
+  this work without extra setup. Set `advanced.bind` to `127.0.0.1` only if
+  nothing outside Signal K's own process needs it.
 - **signalk-whisper / signalk-wyoming / signalk-piper** don't consume Ollama
   directly — they're the STT/orchestration/TTS legs of a voice pipeline. A
   plugin that wants an LLM in that pipeline (e.g. to turn a transcript into

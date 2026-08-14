@@ -142,6 +142,17 @@ with `npm ci` in CI, `npm install` locally when `package.json` changes.
 
 ## Traps
 
+- **In `applyDefaults`, an enum-like field's fallback must not be one of the
+  valid values.** A pattern like `adv.bind === "0.0.0.0" ? "0.0.0.0" :
+defaults.advanced.bind` only works by accident when the default happens to
+  be the _other_ valid value — flip the default and it silently swallows an
+  explicit setting equal to the old default. `bind` hit exactly this when its
+  default changed from `127.0.0.1` to `0.0.0.0`: validate against the full
+  set of valid literals (`adv.bind === "0.0.0.0" || adv.bind === "127.0.0.1"
+? adv.bind : defaults.advanced.bind`), not a single one vs. "anything
+  else". `config.test.ts`'s "accepts an explicit 127.0.0.1" test guards this
+  — don't let it get deleted as "redundant" with the defaults test.
+
 - **`PINNED_TAG` in `config.ts` goes stale.** It's a real Docker Hub tag
   captured at write time (see `resolveTag`'s `"auto"` mapping), not a
   placeholder — bump it deliberately when you have a reason to (a known bug

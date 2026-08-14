@@ -19,6 +19,7 @@ describe("applyDefaults", () => {
     expect(d.imageTag).toBe("auto");
     expect(d.models).toEqual([]);
     expect(d.port).toBe(11434);
+    expect(d.advanced.bind).toBe("0.0.0.0");
     expect(d.advanced.memoryLimit).toBe("4g");
     expect(d.advanced.restartPolicy).toBe("unless-stopped");
     expect(d.advanced.gpu).toBe("none");
@@ -32,6 +33,11 @@ describe("applyDefaults", () => {
     expect(settings.models).toEqual(["llama3.2:3b"]);
     expect(settings.advanced.gpu).toBe("amd");
     expect(settings.advanced.memoryLimit).toBe("4g");
+    expect(settings.advanced.bind).toBe("0.0.0.0");
+  });
+
+  it("accepts an explicit 127.0.0.1 (not just the 0.0.0.0 default)", () => {
+    const settings = applyDefaults({ advanced: { bind: "127.0.0.1" } });
     expect(settings.advanced.bind).toBe("127.0.0.1");
   });
 
@@ -43,7 +49,7 @@ describe("applyDefaults", () => {
     });
     expect(settings.port).toBe(11434);
     expect(settings.models).toEqual([]);
-    expect(settings.advanced.bind).toBe("127.0.0.1");
+    expect(settings.advanced.bind).toBe("0.0.0.0");
     expect(settings.advanced.restartPolicy).toBe("unless-stopped");
     expect(settings.advanced.gpu).toBe("none");
   });
@@ -105,23 +111,23 @@ describe("buildContainerConfig", () => {
     expect(a).not.toBe(b);
   });
 
-  it("uses Signal K-only networking, the data mount and memory caps by default", () => {
+  it("publishes on all interfaces, and sets the data mount and memory caps, by default", () => {
     const config = buildContainerConfig(defaultSettings(), PINNED_TAG);
     expect(config.image).toBe(IMAGE);
     expect(config.tag).toBe(PINNED_TAG);
-    expect(config.signalkAccessiblePorts).toEqual([11434]);
-    expect(config.ports).toBeUndefined();
+    expect(config.ports).toEqual({ "11434": "0.0.0.0:11434" });
+    expect(config.signalkAccessiblePorts).toBeUndefined();
     expect(config.signalkDataMount).toBe("/root/.ollama");
     expect(config.restart).toBe("unless-stopped");
     expect(config.resources).toEqual({ memory: "4g", memorySwap: "4g" });
     expect(config.devices).toBeUndefined();
   });
 
-  it("switches to an explicit all-interfaces publish for bind 0.0.0.0", () => {
-    const settings = applyDefaults({ advanced: { bind: "0.0.0.0" } });
+  it("switches to Signal K-only networking for bind 127.0.0.1", () => {
+    const settings = applyDefaults({ advanced: { bind: "127.0.0.1" } });
     const config = buildContainerConfig(settings, PINNED_TAG);
-    expect(config.ports).toEqual({ "11434": "0.0.0.0:11434" });
-    expect(config.signalkAccessiblePorts).toBeUndefined();
+    expect(config.signalkAccessiblePorts).toEqual([11434]);
+    expect(config.ports).toBeUndefined();
   });
 
   it("adds ROCm devices/groups for amd GPU mode", () => {

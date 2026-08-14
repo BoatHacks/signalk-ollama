@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `advanced.bind` now defaults to `0.0.0.0` (was `127.0.0.1`) — Ollama is
+  published on all interfaces out of the box, so sibling containers
+  (signalk-whisper, signalk-wyoming, signalk-piper) and other boat systems
+  can actually reach it without extra configuration. With the old default,
+  only signalk-container's own loopback path to Signal K worked; other
+  containers could not reach Ollama at all. Set `advanced.bind` back to
+  `127.0.0.1` to restrict it to this machine only — see the README's
+  "Security" section (the Ollama API has no authentication).
+
+### Added
+
+- Added the `npm publish` job to the release workflow (OIDC trusted
+  publishing — no `NPM_TOKEN`) now that a trusted publisher is configured
+  on npmjs.com. `/plugin-release` now publishes automatically as part of
+  cutting a release.
+
 ## [0.2.0] - 2026-08-14
 
 ### Added
