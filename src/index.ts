@@ -3,9 +3,8 @@
  *
  * Runs ollama/ollama via the signalk-container plugin, waits for its HTTP
  * API to answer, then pulls any configured models. Exists to give other
- * containerized services on the boat (signalk-whisper, signalk-wyoming,
- * signalk-piper, or anything else that speaks the Ollama API) a local LLM
- * server to call.
+ * plugins and services on the boat (signalk-voice-llm, signalk-ai-bridge,
+ * or anything else that speaks the Ollama API) a local LLM server to call.
  */
 
 import type { Plugin, ServerAPI } from "@signalk/server-api";
@@ -30,9 +29,8 @@ export default function createPlugin(app: ServerAPI): Plugin {
     name: PLUGIN_NAME,
     description:
       "Ollama in a managed container — a local LLM server for other " +
-      "containerized services (signalk-whisper, signalk-wyoming, " +
-      "signalk-piper) or anything else on the boat that speaks the " +
-      "Ollama API.",
+      "plugins (signalk-voice-llm, signalk-ai-bridge) or anything else " +
+      "on the boat that speaks the Ollama API.",
 
     schema: () => CONFIG_SCHEMA as unknown as object,
     uiSchema: () => UI_SCHEMA as unknown as object,

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- App Store `recommends` (and other user-facing mentions of typical Ollama
+  callers) now list `signalk-voice-llm` and `signalk-ai-bridge` instead of
+  `signalk-whisper`/`signalk-wyoming`/`signalk-piper` — those three were
+  cited as examples of the `signalk-container` managed-container pattern,
+  not as things that actually speak the Ollama API, and recommending them
+  as Ollama consumers was misleading.
+
 ## [0.2.2] - 2026-08-14
 
 ### Changed

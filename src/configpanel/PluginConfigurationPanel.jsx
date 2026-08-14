@@ -257,8 +257,8 @@ export default function PluginConfigurationPanel({ configuration, save }) {
           label="Bind address"
           hint={
             bind === "0.0.0.0"
-              ? "reachable by sibling containers and the LAN — the Ollama API has no authentication, only run this on trusted networks"
-              : "restricted to this machine only — sibling containers (signalk-whisper, signalk-wyoming, signalk-piper) will not be able to reach it"
+              ? "reachable by other plugins and the LAN — the Ollama API has no authentication, only run this on trusted networks"
+              : "restricted to this machine only — other plugins (signalk-voice-llm, signalk-ai-bridge) will not be able to reach it"
           }
           hintColor={bind === "0.0.0.0" ? undefined : stateColors.warn}
         >

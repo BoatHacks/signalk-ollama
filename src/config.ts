@@ -53,11 +53,10 @@ export function defaultSettings(): OllamaSettings {
     models: [DEFAULT_MODEL],
     port: DEFAULT_PORT,
     advanced: {
-      // 0.0.0.0 by default: Ollama exists to be called by sibling
-      // containers (signalk-whisper, signalk-wyoming, signalk-piper) and
-      // other services on the boat, not just Signal K itself — loopback-only
-      // networking would make it unreachable for its actual purpose out of
-      // the box.
+      // 0.0.0.0 by default: Ollama exists to be called by other plugins
+      // (signalk-voice-llm, signalk-ai-bridge) and services on the boat,
+      // not just Signal K itself — loopback-only networking would make it
+      // unreachable for its actual purpose out of the box.
       bind: "0.0.0.0",
       memoryLimit: "4g",
       restartPolicy: "unless-stopped",
@@ -267,10 +266,10 @@ export const CONFIG_SCHEMA = {
           default: "0.0.0.0",
           description:
             "0.0.0.0 (default) publishes Ollama on all interfaces so " +
-            "sibling containers (signalk-whisper, signalk-wyoming, " +
-            "signalk-piper) and other machines on the LAN can call it " +
-            "directly — the reason this plugin exists. 127.0.0.1 restricts " +
-            "it to this machine only. The Ollama API has no authentication: " +
+            "other plugins (signalk-voice-llm, signalk-ai-bridge) and " +
+            "other machines on the LAN can call it directly — the reason " +
+            "this plugin exists. 127.0.0.1 restricts it to this machine " +
+            "only. The Ollama API has no authentication: " +
             "only run it on trusted networks.",
         },
         memoryLimit: {

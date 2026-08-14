@@ -1,7 +1,7 @@
 {
   "name": "signalk-ollama",
   "version": "0.2.2",
-  "description": "Ollama as a managed container for Signal K — a local LLM server other containerized services (signalk-whisper, signalk-wyoming, signalk-piper) can call.",
+  "description": "Ollama as a managed container for Signal K — a local LLM server other plugins and containerized services (signalk-voice-llm, signalk-ai-bridge) can call.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -55,9 +55,8 @@
       "signalk-container"
     ],
     "recommends": [
-      "signalk-whisper",
-      "signalk-wyoming",
-      "signalk-piper"
+      "signalk-voice-llm",
+      "signalk-ai-bridge"
     ]
   },
   "engines": {

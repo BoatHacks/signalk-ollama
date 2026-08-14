@@ -12,13 +12,11 @@ plugin starts Ollama in a container (via the
 waits for its API to answer, pulls whatever models you've configured, and
 keeps it healthy. You never have to touch docker or podman yourself.
 
-It exists to feed **other containerized services** — the same "managed
-container" archetype as
-[signalk-whisper](https://github.com/hoeken/signalk-whisper),
-[signalk-wyoming](https://github.com/hoeken/signalk-wyoming), and
-[signalk-piper](https://github.com/hoeken/signalk-piper) — and anything else
-on the boat that speaks the [Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md):
-a voice assistant summarizing the day's log, an alert-narration plugin, a
+It exists to feed **other plugins and services** that speak the
+[Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md) —
+[signalk-voice-llm](https://github.com/BoatHacks/signalk-voice-llm),
+[signalk-ai-bridge](https://github.com/BoatHacks/signalk-ai-bridge), a
+voice assistant summarizing the day's log, an alert-narration plugin, a
 chatbot panel, or a script you wrote yourself. signalk-ollama does not do any
 of that itself — it just makes sure a local LLM is running and has the
 models you asked for.
@@ -126,16 +124,13 @@ Once ready, Ollama is a plain HTTP API server at `http://<host>:<port>`
 (normally `http://<boat-ip>:11434` — published on all interfaces by
 default, see "Security"):
 
-- **Other Signal K plugins and sibling containers** (signalk-whisper,
-  signalk-wyoming, signalk-piper, or anything else) reach it at the host's
-  address and port — the default `advanced.bind: 0.0.0.0` is what makes
-  this work without extra setup. Set `advanced.bind` to `127.0.0.1` only if
-  nothing outside Signal K's own process needs it.
-- **signalk-whisper / signalk-wyoming / signalk-piper** don't consume Ollama
-  directly — they're the STT/orchestration/TTS legs of a voice pipeline. A
-  plugin that wants an LLM in that pipeline (e.g. to turn a transcript into
-  an answer before speaking it) points at this server's `/api/generate` or
-  `/api/chat` endpoint.
+- **Other Signal K plugins** — [signalk-voice-llm](https://github.com/BoatHacks/signalk-voice-llm),
+  [signalk-ai-bridge](https://github.com/BoatHacks/signalk-ai-bridge), or
+  anything else — reach it at the host's address and port, pointing at this
+  server's `/api/generate` or `/api/chat` endpoint. The default
+  `advanced.bind: 0.0.0.0` is what makes this work without extra setup. Set
+  `advanced.bind` to `127.0.0.1` only if nothing outside Signal K's own
+  process needs it.
 - **Anything else that speaks Ollama's API** — a script, a chatbot panel, or
   Home Assistant's Ollama integration — can use it the same way. Ollama has
   no built-in authentication: only expose `0.0.0.0` on trusted networks.
