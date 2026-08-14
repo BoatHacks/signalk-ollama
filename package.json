@@ -1,6 +1,6 @@
 {
   "name": "signalk-ollama",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Ollama as a managed container for Signal K — a local LLM server other containerized services (signalk-whisper, signalk-wyoming, signalk-piper) can call.",
   "type": "module",
   "main": "dist/index.js",
