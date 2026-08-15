@@ -42,6 +42,7 @@ export function toOllamaTool(tool: McpToolDefinition): OllamaToolDefinition {
 interface JsonRpcResponse {
   jsonrpc: "2.0";
   id?: number | string;
+  method?: string;
   result?: unknown;
   error?: { code: number; message: string };
 }
@@ -49,11 +50,32 @@ interface JsonRpcResponse {
 let nextRequestId = 1;
 
 /**
+ * Parse an SSE stream body into its individual events, each event's `data:`
+ * line(s) joined per the spec (multiple `data:` lines in one event
+ * concatenate with `\n`). Comment lines (`:...`) and other SSE fields
+ * (`event:`, `id:`, `retry:`) are ignored — only the payload is needed here.
+ */
+function parseSseDataFrames(text: string): string[] {
+  const frames: string[] = [];
+  for (const rawEvent of text.split(/\r?\n\r?\n/)) {
+    const dataLines = rawEvent
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""));
+    if (dataLines.length > 0) frames.push(dataLines.join("\n"));
+  }
+  return frames;
+}
+
+/**
  * POST one JSON-RPC message. The Streamable HTTP transport lets a server
  * answer either `application/json` (one response object) or
- * `text/event-stream` (one or more `data:` frames) — both are handled here.
- * A session id returned via the `Mcp-Session-Id` response header is echoed
- * back on every later call, per the spec.
+ * `text/event-stream` — one or more SSE events, e.g. progress notifications
+ * for a long-running tool call followed eventually by the actual response.
+ * Both are handled here; for SSE, every event is parsed and the one whose
+ * `id` matches this request's id is used (notifications carry no id and are
+ * skipped). A session id returned via the `Mcp-Session-Id` response header
+ * is echoed back on every later call, per the spec.
  */
 async function postJsonRpc(
   url: string,
@@ -64,7 +86,8 @@ async function postJsonRpc(
 ): Promise<{ result: unknown; sessionId: string | null }> {
   const body: Record<string, unknown> = { jsonrpc: "2.0", method };
   if (params !== undefined) body.params = params;
-  if (!isNotification) body.id = nextRequestId++;
+  const requestId = isNotification ? undefined : nextRequestId++;
+  if (requestId !== undefined) body.id = requestId;
 
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -97,14 +120,25 @@ async function postJsonRpc(
   }
 
   const contentType = res.headers.get("content-type") ?? "";
-  let payload: JsonRpcResponse;
+  let payload: JsonRpcResponse | undefined;
   if (contentType.includes("text/event-stream")) {
     const text = await res.text();
-    const dataLine = text.split("\n").find((line) => line.startsWith("data:"));
-    if (!dataLine) {
+    const frames = parseSseDataFrames(text);
+    if (frames.length === 0) {
       throw new Error(`MCP ${method}: SSE response carried no data frame`);
     }
-    payload = JSON.parse(dataLine.slice(5).trim()) as JsonRpcResponse;
+    for (const frame of frames) {
+      const parsed = JSON.parse(frame) as JsonRpcResponse;
+      if (parsed.id === requestId) {
+        payload = parsed;
+        break;
+      }
+    }
+    if (!payload) {
+      throw new Error(
+        `MCP ${method}: SSE response carried ${frames.length} event(s) but none matched request id ${requestId}`,
+      );
+    }
   } else {
     payload = (await res.json()) as JsonRpcResponse;
   }

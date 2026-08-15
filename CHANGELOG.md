@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.4] - 2026-08-15
+
+### Fixed
+
+- MCP tool calls could fail with "SSE response carried no data frame" for
+  longer-running tools (e.g. `execute_code`) whose Streamable HTTP response
+  streams progress notifications before the actual result — the client only
+  ever looked at the first SSE event. It now parses every event in the
+  stream and picks the one whose `id` matches the request, skipping
+  notifications along the way.
+
 ## [0.2.3] - 2026-08-14
 
 ### Added

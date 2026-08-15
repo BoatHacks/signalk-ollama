@@ -169,6 +169,66 @@ describe("McpConnectionClient", () => {
     await expect(client.listTools()).resolves.toEqual([]);
   });
 
+  it("skips leading SSE notification events and picks the frame matching the request id (long-running tool call)", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as {
+        method: string;
+        id?: number;
+      };
+      if (body.method === "initialize") return jsonRpcResponse(body.id!, {});
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+      // A long-running tool call (e.g. execute_code) streaming progress
+      // notifications (no "id") before the actual response frame.
+      const notification = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: { level: "info", data: "running..." },
+      });
+      const response = JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { content: [{ type: "text", text: "Wandering Star" }] },
+      });
+      return new Response(
+        `event: message\ndata: ${notification}\n\n` +
+          `event: message\ndata: ${response}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new McpConnectionClient("mcp", URL);
+    const result = await client.callTool("execute_code", { code: "..." });
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Wandering Star" }],
+    });
+  });
+
+  it("rejects with a descriptive error when no SSE frame matches the request id", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as { method: string; id?: number };
+      if (body.method === "initialize") return jsonRpcResponse(body.id!, {});
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+      const notification = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: { level: "info", data: "still running..." },
+      });
+      return new Response(`event: message\ndata: ${notification}\n\n`, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new McpConnectionClient("mcp", URL);
+    await expect(client.listTools()).rejects.toThrow(/none matched request id/);
+  });
+
   it("rejects on a JSON-RPC error response", async () => {
     const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as { method: string; id?: number };
