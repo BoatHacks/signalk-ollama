@@ -420,6 +420,137 @@ describe("OllamaService", () => {
     expect(chunks.some((c) => c.message?.content === "44.5,-63.5")).toBe(true);
   });
 
+  it("registerRoutes: POST /api/chat retries a tool call once after a stale MCP session", async () => {
+    let chatCallCount = 0;
+    let initCount = 0;
+    let toolCallCount = 0;
+    fetchImpl.mockImplementation(
+      async (url: string, init?: { method?: string; body?: string }) => {
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/api/version")) {
+          return new Response(JSON.stringify({ version: "0.32.10" }), {
+            status: 200,
+          });
+        }
+        if (url === "http://mcp.local/mcp" && method === "POST") {
+          const body = JSON.parse(init!.body!) as {
+            method: string;
+            id?: number;
+          };
+          if (body.method === "notifications/initialized") {
+            return new Response(null, { status: 202 });
+          }
+          if (body.method === "initialize") {
+            initCount += 1;
+            return new Response(
+              JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {} }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          if (body.method === "tools/list") {
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                result: {
+                  tools: [{ name: "get_position", description: "position" }],
+                },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          if (body.method === "tools/call") {
+            toolCallCount += 1;
+            if (toolCallCount === 1) {
+              // A stale/expired server-side session surfaces as an
+              // instant, empty SSE stream rather than a clear error.
+              return new Response("", {
+                status: 200,
+                headers: { "content-type": "text/event-stream" },
+              });
+            }
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                result: { content: [{ type: "text", text: "44.5,-63.5" }] },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          throw new Error(`unexpected MCP method: ${body.method}`);
+        }
+        if (url.endsWith("/api/chat") && method === "POST") {
+          chatCallCount += 1;
+          if (chatCallCount === 1) {
+            return ndjsonResponse([
+              {
+                message: {
+                  role: "assistant",
+                  content: "",
+                  tool_calls: [
+                    { function: { name: "get_position", arguments: {} } },
+                  ],
+                },
+                done: true,
+              },
+            ]);
+          }
+          return ndjsonResponse([
+            {
+              message: {
+                role: "assistant",
+                content: "You are at 44.5,-63.5.",
+              },
+            },
+          ]);
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      },
+    );
+
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({
+      mcp: {
+        enabled: true,
+        connections: [
+          { name: "mcp", url: "http://mcp.local/mcp", enabled: true },
+        ],
+      },
+    });
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const handler = router.routes.get("POST /api/chat")!;
+    const res = new FakeStreamResponse();
+    handler(
+      {
+        body: {
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "where am I?" }],
+          sessionId: "sess-retry",
+        },
+      },
+      res,
+    );
+    await res.done;
+
+    expect(toolCallCount).toBe(2);
+    expect(initCount).toBe(2);
+    const chunks = res.parsedChunks<{ message?: { content: string } }>();
+    expect(chunks.at(-1)?.message?.content).toBe("You are at 44.5,-63.5.");
+    expect(chunks.some((c) => c.message?.content === "44.5,-63.5")).toBe(true);
+
+    const logHandler = router.routes.get("GET /api/session-log/:sessionId")!;
+    const logRes = new FakeStreamResponse();
+    logHandler({ params: { sessionId: "sess-retry" } }, logRes);
+    await logRes.done;
+    expect(logRes.chunks.join("")).toContain(
+      "retrying once after session reset",
+    );
+  });
+
   it("registerRoutes: GET /api/mcp/status reports per-connection tool counts and errors", async () => {
     fetchImpl.mockImplementation(
       async (url: string, init?: { method?: string; body?: string }) => {

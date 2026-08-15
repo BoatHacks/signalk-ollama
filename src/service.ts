@@ -466,12 +466,13 @@ export class OllamaService {
   private async runToolCall(
     call: ToolCall,
     toolIndex: Map<string, McpConnectionClient>,
+    sessionId?: string,
   ): Promise<string> {
     const client = toolIndex.get(call.function.name);
     if (!client) {
       return `error: unknown tool "${call.function.name}"`;
     }
-    try {
+    const attempt = async (): Promise<string> => {
       const result = await client.callTool(
         call.function.name,
         call.function.arguments ?? {},
@@ -482,9 +483,28 @@ export class OllamaService {
         )
         .join("\n");
       return result.isError ? `error: ${text}` : text || "(no output)";
+    };
+    try {
+      return await attempt();
     } catch (err) {
+      // The cached session (from the pre-round probe or an earlier call)
+      // may have gone stale between then and now — e.g. the MCP server
+      // restarted or dropped an idle session — which surfaces as an
+      // instant, empty response rather than a clear "session expired"
+      // error. Re-initializing and retrying once distinguishes a stale
+      // session from a genuinely broken connection/tool without making the
+      // model retry it itself.
       client.reset();
-      return `error calling ${call.function.name}: ${errMsg(err)}`;
+      this.logSession(
+        sessionId,
+        `tool call ${call.function.name} failed (${errMsg(err)}), retrying once after session reset`,
+      );
+      try {
+        return await attempt();
+      } catch (retryErr) {
+        client.reset();
+        return `error calling ${call.function.name}: ${errMsg(retryErr)}`;
+      }
     }
   }
 
@@ -582,7 +602,7 @@ export class OllamaService {
           tool_calls: pendingToolCalls,
         });
         for (const call of pendingToolCalls) {
-          const resultText = await this.runToolCall(call, toolIndex);
+          const resultText = await this.runToolCall(call, toolIndex, sessionId);
           this.logSession(
             sessionId,
             `tool result for ${call.function.name}: ${JSON.stringify(resultText)}`,

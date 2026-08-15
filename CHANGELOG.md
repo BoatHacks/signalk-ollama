@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.6] - 2026-08-15
+
+### Fixed
+
+- MCP tool calls could fail with "SSE response carried no data frame" even
+  after the 0.2.4 fix, when the server-side session went stale between the
+  pre-round tool probe and the model actually requesting the call — e.g. an
+  idle timeout or a container restart in between. This surfaced as an
+  instant, empty response rather than a clear session error. Tool calls now
+  get one retry, with the connection's session reset and re-initialized in
+  between, before the failure is reported back to the model. Visible in the
+  downloadable session log as "retrying once after session reset".
+
 ## [0.2.5] - 2026-08-15
 
 ### Added
