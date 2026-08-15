@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.5] - 2026-08-15
+
+### Added
+
+- Playground: a "Download session log" link next to the chat controls,
+  downloading a plain-text backend activity log for the current
+  session — MCP connection probes, tool calls and their results, round
+  timing, and errors. Distinct from the chat transcript itself (already
+  visible in the browser) and from "recent interactions" (a short summary
+  per exchange); this is the detail needed to debug why a tool call failed
+  or which MCP connection served it, without digging through Signal K's
+  server log. In-memory only, capped at the last 20 sessions and 2,000
+  lines per session, cleared on a server restart like the rest of the
+  playground's state. A fresh session starts (and gets its own log) each
+  page load and on "Clear conversation".
+
 ## [0.2.4] - 2026-08-15
 
 ### Fixed

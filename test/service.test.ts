@@ -240,6 +240,65 @@ describe("OllamaService", () => {
     });
   });
 
+  it("registerRoutes: POST /api/chat with a sessionId records a downloadable backend log", async () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({});
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const chatHandler = router.routes.get("POST /api/chat")!;
+    const chatRes = new FakeStreamResponse();
+    chatHandler(
+      {
+        body: {
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "hi" }],
+          sessionId: "sess-1",
+        },
+      },
+      chatRes,
+    );
+    await chatRes.done;
+
+    const logHandler = router.routes.get("GET /api/session-log/:sessionId")!;
+    const logRes = new FakeStreamResponse();
+    logHandler({ params: { sessionId: "sess-1" } }, logRes);
+    await logRes.done;
+
+    expect(logRes.headers["Content-Type"]).toBe("text/plain; charset=utf-8");
+    expect(logRes.headers["Content-Disposition"]).toBe(
+      'attachment; filename="signalk-ollama-session-sess-1.log"',
+    );
+    const log = logRes.chunks.join("");
+    expect(log).toContain("chat request: model=llama3.2:3b");
+    expect(log).toContain("chat request completed");
+  });
+
+  it("registerRoutes: GET /api/session-log/:sessionId 404s for an unknown session", async () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    service.start({});
+    await until(() => app.statuses.some((s) => s.startsWith("Running")));
+
+    const logHandler = router.routes.get("GET /api/session-log/:sessionId")!;
+    const logRes = new FakeStreamResponse();
+    logHandler({ params: { sessionId: "never-happened" } }, logRes);
+    await logRes.done;
+    expect(logRes.statusCode).toBe(404);
+  });
+
+  it("registerRoutes: GET /api/session-log/:sessionId answers 503 while stopped", () => {
+    const service = new OllamaService(app, { fetchImpl: fetchImpl as never });
+    const router = new FakeRouter();
+    service.registerRoutes(router as unknown as RouterLike, () => ({}));
+    const logHandler = router.routes.get("GET /api/session-log/:sessionId")!;
+    const logRes = new FakeStreamResponse();
+    logHandler({ params: { sessionId: "sess-1" } }, logRes);
+    expect(logRes.statusCode).toBe(503);
+  });
+
   it("registerRoutes: POST /api/chat offers MCP tools and runs a tool-call round-trip", async () => {
     let chatCallCount = 0;
     fetchImpl.mockImplementation(

@@ -103,6 +103,12 @@ const STATUS_THROTTLE_MS = 3_000;
 /** Caps the tool-call ↔ tool-result exchange per chat turn against a runaway model. */
 const MAX_TOOL_ROUNDS = 4;
 
+/** Playground session logs are in-memory only; bound both axes against unbounded growth. */
+const MAX_SESSION_LOGS = 20;
+const MAX_LOG_LINES_PER_SESSION = 2_000;
+/** Caps a single log line so one huge tool result can't dominate memory. */
+const LOG_LINE_LIMIT = 2_000;
+
 export interface McpConnectionStatus {
   name: string;
   url: string;
@@ -134,6 +140,16 @@ export class OllamaService {
 
   /** MCP client per connection URL, reused across chat turns to keep sessions alive. */
   private mcpClients = new Map<string, McpConnectionClient>();
+
+  /**
+   * Backend activity log per playground session (MCP probes, tool calls,
+   * errors — not the chat transcript itself, which the browser already
+   * holds). Keyed by a client-generated id sent with each /api/chat call;
+   * `sessionOrder` tracks insertion order so the oldest session is evicted
+   * once MAX_SESSION_LOGS is exceeded.
+   */
+  private sessionLogs = new Map<string, string[]>();
+  private sessionOrder: string[] = [];
 
   constructor(app: ServiceApp, options: { fetchImpl?: FetchLike } = {}) {
     this.app = app;
@@ -369,6 +385,33 @@ export class OllamaService {
     }
   }
 
+  private logSession(sessionId: string | undefined, line: string): void {
+    if (!sessionId) return;
+    let entries = this.sessionLogs.get(sessionId);
+    if (!entries) {
+      entries = [];
+      this.sessionLogs.set(sessionId, entries);
+      this.sessionOrder.push(sessionId);
+      if (this.sessionOrder.length > MAX_SESSION_LOGS) {
+        const oldest = this.sessionOrder.shift();
+        if (oldest) this.sessionLogs.delete(oldest);
+      }
+    }
+    const truncated =
+      line.length > LOG_LINE_LIMIT
+        ? `${line.slice(0, LOG_LINE_LIMIT)}… [truncated]`
+        : line;
+    entries.push(`[${new Date().toISOString()}] ${truncated}`);
+    if (entries.length > MAX_LOG_LINES_PER_SESSION) entries.shift();
+  }
+
+  /** Full backend log for one playground session, newest last; null if unknown/expired. */
+  getSessionLog(sessionId: string): string | null {
+    const entries = this.sessionLogs.get(sessionId);
+    if (!entries) return null;
+    return `${entries.join("\n")}\n`;
+  }
+
   private mcpClient(name: string, url: string): McpConnectionClient {
     let client = this.mcpClients.get(url);
     if (!client) {
@@ -459,6 +502,7 @@ export class OllamaService {
   private async chat(
     model: string,
     messages: ChatMessage[],
+    sessionId: string | undefined,
     onChunk: (chunk: {
       message?: { role: string; content: string };
       done?: boolean;
@@ -473,12 +517,32 @@ export class OllamaService {
     const startedAt = new Date().toISOString();
     const startedAtMs = Date.now();
     let assistantText = "";
+    this.logSession(
+      sessionId,
+      `chat request: model=${model} messages=${messages.length} prompt=${JSON.stringify(truncate(lastUserMessage))}`,
+    );
     try {
-      const { tools, toolIndex } = await this.probeMcpConnections();
+      const { tools, toolIndex, statuses } = await this.probeMcpConnections();
+      for (const s of statuses) {
+        this.logSession(
+          sessionId,
+          `mcp connection "${s.name}" (${s.url}): ${
+            s.error ? `error: ${s.error}` : `${s.toolCount} tool(s)`
+          }`,
+        );
+      }
+      this.logSession(
+        sessionId,
+        `mcp tools offered: ${tools.length === 0 ? "(none)" : tools.map((t) => t.function.name).join(", ")}`,
+      );
       const conversation: ChatMessage[] = [...messages];
       for (let round = 1; ; round += 1) {
         let roundContent = "";
         let pendingToolCalls: ToolCall[] = [];
+        this.logSession(
+          sessionId,
+          `round ${round}: requesting completion from ${model}`,
+        );
         await chatStream(
           uri,
           model,
@@ -495,7 +559,23 @@ export class OllamaService {
           },
           { tools },
         );
-        if (pendingToolCalls.length === 0 || round >= MAX_TOOL_ROUNDS) break;
+        if (pendingToolCalls.length === 0 || round >= MAX_TOOL_ROUNDS) {
+          this.logSession(
+            sessionId,
+            `round ${round}: finished, ${roundContent.length} chars, no further tool calls`,
+          );
+          break;
+        }
+        this.logSession(
+          sessionId,
+          `round ${round}: model requested ${pendingToolCalls.length} tool call(s): ` +
+            pendingToolCalls
+              .map(
+                (c) =>
+                  `${c.function.name}(${JSON.stringify(c.function.arguments)})`,
+              )
+              .join(", "),
+        );
         conversation.push({
           role: "assistant",
           content: roundContent,
@@ -503,10 +583,18 @@ export class OllamaService {
         });
         for (const call of pendingToolCalls) {
           const resultText = await this.runToolCall(call, toolIndex);
+          this.logSession(
+            sessionId,
+            `tool result for ${call.function.name}: ${JSON.stringify(resultText)}`,
+          );
           conversation.push({ role: "tool", content: resultText });
           onChunk({ message: { role: "tool", content: resultText } });
         }
       }
+      this.logSession(
+        sessionId,
+        `chat request completed in ${Date.now() - startedAtMs}ms`,
+      );
       this.recordInteraction({
         model,
         prompt: truncate(lastUserMessage),
@@ -517,6 +605,7 @@ export class OllamaService {
       });
     } catch (err) {
       const message = errMsg(err);
+      this.logSession(sessionId, `chat request failed: ${message}`);
       this.recordInteraction({
         model,
         prompt: truncate(lastUserMessage),
@@ -679,16 +768,53 @@ export class OllamaService {
       },
     );
 
+    // Plain-text download of one playground session's backend activity log
+    // (MCP probes, tool calls, errors) — a debugging aid distinct from the
+    // chat transcript itself, which the browser already holds. Admin-only:
+    // tool call arguments/results can carry live SignalK data.
+    router.get(
+      "/api/session-log/:sessionId",
+      (req: unknown, res: ResponseLike) => {
+        if (!guardRunning(res)) return;
+        const sessionId = (req as { params?: { sessionId?: string } }).params
+          ?.sessionId;
+        if (!sessionId) {
+          res.status(400).json({ error: "sessionId is required" });
+          return;
+        }
+        const log = this.getSessionLog(sessionId);
+        if (log === null) {
+          res.status(404).json({ error: "no log for this session" });
+          return;
+        }
+        const stream = res as StreamableResponse;
+        stream.setHeader?.("Content-Type", "text/plain; charset=utf-8");
+        stream.setHeader?.(
+          "Content-Disposition",
+          `attachment; filename="signalk-ollama-session-${sessionId}.log"`,
+        );
+        stream.write?.(log);
+        stream.end?.();
+      },
+    );
+
     // Streaming NDJSON proxy for the webapp's playground — see chat().
     // Not registered on statusRouter: this both reads (interactions) and
     // writes (drives a live model), so it stays admin-only like the other
     // POST routes.
     router.post("/api/chat", (req: unknown, res: ResponseLike) => {
       if (!guardRunning(res)) return;
-      const body = (req as { body?: { model?: unknown; messages?: unknown } })
-        .body;
+      const body = (
+        req as {
+          body?: { model?: unknown; messages?: unknown; sessionId?: unknown };
+        }
+      ).body;
       const model = body?.model;
       const messages = body?.messages;
+      const sessionId =
+        typeof body?.sessionId === "string" && body.sessionId.trim() !== ""
+          ? body.sessionId.trim()
+          : undefined;
       if (
         !isValidModelName(model) ||
         !Array.isArray(messages) ||
@@ -707,7 +833,7 @@ export class OllamaService {
       const stream = res as StreamableResponse;
       stream.setHeader?.("Content-Type", "application/x-ndjson");
       let wroteAny = false;
-      this.chat(model, messages, (chunk) => {
+      this.chat(model, messages, sessionId, (chunk) => {
         wroteAny = true;
         stream.write?.(`${JSON.stringify(chunk)}\n`);
       })

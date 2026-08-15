@@ -151,9 +151,38 @@ const chatSend = document.getElementById("chat-send");
 const chatStop = document.getElementById("chat-stop");
 const systemPrompt = document.getElementById("system-prompt");
 const clearChatBtn = document.getElementById("clear-chat");
+const downloadSessionLogLink = document.getElementById("download-session-log");
 
 let conversation = [];
 let activeAbort = null;
+
+/**
+ * crypto.randomUUID() only exists in "secure contexts" (HTTPS, or
+ * http://localhost) — it's absent when this page is loaded over plain HTTP
+ * on a LAN IP, the normal way to reach Signal K on a boat. The session id
+ * only needs to be distinct per playground session, not cryptographically
+ * random, so fall back to a Math.random()-based v4-UUID shape.
+ */
+function generateSessionId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+let sessionId = generateSessionId();
+
+function updateSessionLogLink() {
+  downloadSessionLogLink.href = `${BASE}/api/session-log/${sessionId}`;
+}
+updateSessionLogLink();
 
 function escapeHtml(text) {
   const div = document.createElement("div");
@@ -173,6 +202,10 @@ function addBubble(role, text) {
 
 clearChatBtn.addEventListener("click", () => {
   conversation = [];
+  // A fresh session for the log too — the download link now points at a
+  // new (so far empty) session, matching the cleared transcript above it.
+  sessionId = generateSessionId();
+  updateSessionLogLink();
   chatLog.innerHTML = '<p class="chat-hint">Conversation cleared.</p>';
 });
 
@@ -203,7 +236,7 @@ chatForm.addEventListener("submit", async (e) => {
     const res = await fetch(`${BASE}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, messages: conversation }),
+      body: JSON.stringify({ model, messages: conversation, sessionId }),
       signal: abort.signal,
     });
     if (!res.ok) {
