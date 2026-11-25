@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Updated the development dependencies `fast-uri`, `vite`, `source-map-js`,
   `vitest` and `@vitest/mocker` to resolve open Dependabot alerts.
+- Updated the lint toolchain (`eslint`, `typescript-eslint`,
+  `brace-expansion`, `minimatch`) to clear the remaining `npm audit` findings.
 
 ## [0.2.6] - 2026-08-15
 
