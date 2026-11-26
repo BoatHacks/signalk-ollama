@@ -42,6 +42,12 @@ export interface McpConnectionSettings {
   /** Streamable HTTP endpoint, e.g. "http://localhost:8000/mcp". */
   url: string;
   enabled: boolean;
+  /**
+   * Optional bearer token, sent as `Authorization: Bearer <token>` on every
+   * request to this connection — e.g. a Signal K user token for servers like
+   * signalk-mcp that always require one. Omitted when not set.
+   */
+  token?: string;
 }
 
 export interface McpSettings {
@@ -146,7 +152,16 @@ function sanitizeMcpConnections(raw: unknown): McpConnectionSettings[] {
       typeof entry.name === "string" && entry.name.trim() !== ""
         ? entry.name.trim()
         : url;
-    connections.push({ name, url, enabled: entry.enabled !== false });
+    const token =
+      typeof entry.token === "string" && entry.token.trim() !== ""
+        ? entry.token.trim()
+        : undefined;
+    connections.push({
+      name,
+      url,
+      enabled: entry.enabled !== false,
+      ...(token !== undefined ? { token } : {}),
+    });
   }
   return connections;
 }
@@ -398,6 +413,14 @@ export const CONFIG_SCHEMA = {
               name: { type: "string", title: "Name" },
               url: { type: "string", title: "Streamable HTTP URL" },
               enabled: { type: "boolean", title: "Enabled", default: true },
+              token: {
+                type: "string",
+                title: "Bearer token (optional)",
+                description:
+                  "Sent as an Authorization: Bearer header, for servers " +
+                  "that require one (e.g. a Signal K user token for " +
+                  "signalk-mcp). Leave empty for none.",
+              },
             },
           },
           default: [
@@ -426,6 +449,9 @@ export const UI_SCHEMA = {
   mcp: {
     connections: {
       "ui:options": { orderable: false },
+      items: {
+        token: { "ui:widget": "password" },
+      },
     },
   },
 } as const;

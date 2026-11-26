@@ -123,6 +123,25 @@ describe("applyDefaults", () => {
   });
 });
 
+describe("applyDefaults mcp tokens", () => {
+  it("keeps a trimmed token and drops empty or non-string ones", () => {
+    const settings = applyDefaults({
+      mcp: {
+        connections: [
+          { name: "a", url: "http://a.local/mcp", token: "  secret  " },
+          { name: "b", url: "http://b.local/mcp", token: "   " },
+          { name: "c", url: "http://c.local/mcp", token: 42 },
+        ],
+      },
+    });
+    expect(settings.mcp.connections).toEqual([
+      { name: "a", url: "http://a.local/mcp", enabled: true, token: "secret" },
+      { name: "b", url: "http://b.local/mcp", enabled: true },
+      { name: "c", url: "http://c.local/mcp", enabled: true },
+    ]);
+  });
+});
+
 describe("isValidMcpUrl", () => {
   it("accepts http(s) URLs and rejects everything else", () => {
     expect(isValidMcpUrl("http://localhost:8000/mcp")).toBe(true);

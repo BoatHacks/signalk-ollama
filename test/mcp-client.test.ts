@@ -118,6 +118,52 @@ describe("McpConnectionClient", () => {
     expect(sessionIdsSent).toEqual([null, "sess-42", "sess-42"]);
   });
 
+  it("sends the bearer token on every request when one is configured", async () => {
+    const authSent: (string | null)[] = [];
+    const fetchMock = vi.fn(
+      async (
+        _url: string,
+        init: { body: string; headers: Record<string, string> },
+      ) => {
+        const body = JSON.parse(init.body) as { method: string; id?: number };
+        authSent.push(init.headers.authorization ?? null);
+        if (body.method === "notifications/initialized") {
+          return new Response(null, { status: 202 });
+        }
+        return jsonRpcResponse(body.id!, { tools: [] });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new McpConnectionClient("mcp", URL, "tok-123");
+    await client.listTools();
+    expect(authSent).toEqual([
+      "Bearer tok-123",
+      "Bearer tok-123",
+      "Bearer tok-123",
+    ]);
+  });
+
+  it("sends no authorization header without a token", async () => {
+    const authSent: (string | null)[] = [];
+    const fetchMock = vi.fn(
+      async (
+        _url: string,
+        init: { body: string; headers: Record<string, string> },
+      ) => {
+        const body = JSON.parse(init.body) as { method: string; id?: number };
+        authSent.push(init.headers.authorization ?? null);
+        if (body.method === "notifications/initialized") {
+          return new Response(null, { status: 202 });
+        }
+        return jsonRpcResponse(body.id!, { tools: [] });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new McpConnectionClient("mcp", URL);
+    await client.listTools();
+    expect(authSent).toEqual([null, null, null]);
+  });
+
   it("calls a tool and returns the parsed result", async () => {
     const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as {

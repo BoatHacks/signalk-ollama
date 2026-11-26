@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- MCP connections take an optional bearer token, sent as
+  `Authorization: Bearer <token>` on every request. This lets chat models
+  use MCP servers that always require one, such as `signalk-mcp` with a
+  Signal K user token. Set it in the config panel's MCP section, or as
+  `mcp.connections[].token`. The token is never returned by
+  `/api/mcp/status` or written to the session log, and changing it starts
+  a fresh MCP session.
+
 ## [0.2.7] - 2026-11-25
 
 ### Security

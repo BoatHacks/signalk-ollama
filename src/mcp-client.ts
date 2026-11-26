@@ -82,6 +82,7 @@ async function postJsonRpc(
   method: string,
   params: Record<string, unknown> | undefined,
   sessionId: string | null,
+  token: string | undefined,
   isNotification = false,
 ): Promise<{ result: unknown; sessionId: string | null }> {
   const body: Record<string, unknown> = { jsonrpc: "2.0", method };
@@ -94,6 +95,7 @@ async function postJsonRpc(
     accept: "application/json, text/event-stream",
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
+  if (token) headers.authorization = `Bearer ${token}`;
 
   let res: Response;
   try {
@@ -160,6 +162,8 @@ export class McpConnectionClient {
   constructor(
     readonly name: string,
     readonly url: string,
+    /** Optional bearer token, sent as `Authorization: Bearer <token>`. */
+    readonly token?: string,
   ) {}
 
   private ensureInitialized(): Promise<void> {
@@ -177,6 +181,7 @@ export class McpConnectionClient {
         clientInfo: { name: "signalk-ollama", version: "1.0.0" },
       },
       this.sessionId,
+      this.token,
     );
     this.sessionId = sessionId;
     await postJsonRpc(
@@ -184,6 +189,7 @@ export class McpConnectionClient {
       "notifications/initialized",
       undefined,
       this.sessionId,
+      this.token,
       true,
     );
   }
@@ -195,6 +201,7 @@ export class McpConnectionClient {
       "tools/list",
       {},
       this.sessionId,
+      this.token,
     );
     const tools = (result as { tools?: McpToolDefinition[] } | undefined)
       ?.tools;
@@ -211,6 +218,7 @@ export class McpConnectionClient {
       "tools/call",
       { name, arguments: args },
       this.sessionId,
+      this.token,
     );
     return (result ?? {}) as McpToolResult;
   }

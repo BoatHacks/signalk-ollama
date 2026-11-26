@@ -102,6 +102,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
   );
   const [newMcpName, setNewMcpName] = useState("");
   const [newMcpUrl, setNewMcpUrl] = useState("");
+  const [newMcpToken, setNewMcpToken] = useState("");
   const [mcpTesting, setMcpTesting] = useState(false);
   const [mcpTestResults, setMcpTestResults] = useState(null);
 
@@ -160,13 +161,27 @@ export default function PluginConfigurationPanel({ configuration, save }) {
   const addMcpConnection = () => {
     const name = newMcpName.trim();
     const url = newMcpUrl.trim();
+    const token = newMcpToken.trim();
     if (url === "" || mcpConnections.some((c) => c.url === url)) return;
     setMcpConnections([
       ...mcpConnections,
-      { name: name || url, url, enabled: true },
+      { name: name || url, url, enabled: true, ...(token ? { token } : {}) },
     ]);
     setNewMcpName("");
     setNewMcpUrl("");
+    setNewMcpToken("");
+  };
+
+  const setMcpConnectionToken = (url, value) => {
+    setMcpConnections(
+      mcpConnections.map((c) => {
+        if (c.url !== url) return c;
+        const next = { ...c };
+        if (value.trim()) next.token = value.trim();
+        else delete next.token;
+        return next;
+      }),
+    );
   };
 
   const removeMcpConnection = (url) => {
@@ -318,7 +333,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
                 ? result.error
                   ? `error: ${result.error}`
                   : `${result.toolCount} tool${result.toolCount === 1 ? "" : "s"} available`
-                : conn.url
+                : `${conn.url}${conn.token ? " (token set)" : ""}`
             }
             hintColor={result && result.error ? stateColors.error : undefined}
           >
@@ -330,6 +345,14 @@ export default function PluginConfigurationPanel({ configuration, save }) {
               />{" "}
               enabled
             </label>
+            <input
+              style={{ ...S.input, width: 160 }}
+              type="password"
+              autoComplete="off"
+              value={conn.token || ""}
+              onChange={(e) => setMcpConnectionToken(conn.url, e.target.value)}
+              placeholder="Bearer token (optional)"
+            />
             <Button
               onClick={() => removeMcpConnection(conn.url)}
               style={{ marginLeft: 8 }}
@@ -341,7 +364,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
       })}
       <FieldRow
         label="Add MCP server"
-        hint="Streamable HTTP endpoint, e.g. http://localhost:8000/mcp"
+        hint="Streamable HTTP endpoint, e.g. http://localhost:8000/mcp, plus an optional bearer token for servers that require one (e.g. a Signal K user token for signalk-mcp)"
       >
         <input
           style={{ ...S.input, width: 140 }}
@@ -360,6 +383,14 @@ export default function PluginConfigurationPanel({ configuration, save }) {
             }
           }}
           placeholder="http://localhost:8000/mcp"
+        />
+        <input
+          style={{ ...S.input, width: 160, marginLeft: 8 }}
+          type="password"
+          autoComplete="off"
+          value={newMcpToken}
+          onChange={(e) => setNewMcpToken(e.target.value)}
+          placeholder="Bearer token (optional)"
         />
         <Button onClick={addMcpConnection} style={{ marginLeft: 8 }}>
           Add

@@ -113,6 +113,8 @@ export interface McpConnectionStatus {
   name: string;
   url: string;
   enabled: boolean;
+  /** Whether a bearer token is configured; the token itself is never returned. */
+  hasToken: boolean;
   toolCount: number;
   error: string | null;
 }
@@ -412,10 +414,16 @@ export class OllamaService {
     return `${entries.join("\n")}\n`;
   }
 
-  private mcpClient(name: string, url: string): McpConnectionClient {
+  private mcpClient(
+    name: string,
+    url: string,
+    token: string | undefined,
+  ): McpConnectionClient {
     let client = this.mcpClients.get(url);
-    if (!client) {
-      client = new McpConnectionClient(name, url);
+    // A changed token needs a fresh client (and session) — the old session
+    // was authenticated as whoever the previous token belonged to.
+    if (!client || client.token !== token) {
+      client = new McpConnectionClient(name, url, token);
       this.mcpClients.set(url, client);
     }
     return client;
@@ -441,11 +449,19 @@ export class OllamaService {
 
     await Promise.all(
       connections.map(async (conn) => {
+        // Never echo the token back: this status goes out over
+        // /api/mcp/status and into the downloadable session log.
+        const base = {
+          name: conn.name,
+          url: conn.url,
+          enabled: conn.enabled,
+          hasToken: conn.token !== undefined,
+        };
         if (!mcpEnabled || !conn.enabled) {
-          statuses.push({ ...conn, toolCount: 0, error: null });
+          statuses.push({ ...base, toolCount: 0, error: null });
           return;
         }
-        const client = this.mcpClient(conn.name, conn.url);
+        const client = this.mcpClient(conn.name, conn.url, conn.token);
         try {
           const defs = await client.listTools();
           for (const def of defs) {
@@ -453,10 +469,10 @@ export class OllamaService {
             toolIndex.set(def.name, client);
             tools.push(toOllamaTool(def));
           }
-          statuses.push({ ...conn, toolCount: defs.length, error: null });
+          statuses.push({ ...base, toolCount: defs.length, error: null });
         } catch (err) {
           client.reset();
-          statuses.push({ ...conn, toolCount: 0, error: errMsg(err) });
+          statuses.push({ ...base, toolCount: 0, error: errMsg(err) });
         }
       }),
     );

@@ -597,7 +597,12 @@ describe("OllamaService", () => {
       mcp: {
         enabled: true,
         connections: [
-          { name: "good", url: "http://good.local/mcp", enabled: true },
+          {
+            name: "good",
+            url: "http://good.local/mcp",
+            enabled: true,
+            token: "s3cret-token",
+          },
           { name: "bad", url: "http://bad.local/mcp", enabled: true },
         ],
       },
@@ -620,6 +625,14 @@ describe("OllamaService", () => {
     expect(body.connections.find((c) => c.name === "bad")?.error).toMatch(
       /HTTP 500/,
     );
+    // The token is reported as present, but never echoed back.
+    expect(body.connections).toContainEqual(
+      expect.objectContaining({ name: "good", hasToken: true }),
+    );
+    expect(body.connections).toContainEqual(
+      expect.objectContaining({ name: "bad", hasToken: false }),
+    );
+    expect(JSON.stringify(body)).not.toContain("s3cret-token");
   });
 
   it("registerRoutes: GET /api/mcp/status answers 503 while stopped", () => {
