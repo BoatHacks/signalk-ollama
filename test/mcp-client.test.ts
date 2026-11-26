@@ -74,7 +74,7 @@ describe("McpConnectionClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new McpConnectionClient("signalk-mcp-container", URL);
+    const client = new McpConnectionClient("signalk-mcp", URL);
     const tools = await client.listTools();
     expect(tools).toEqual([{ name: "get_position", description: "position" }]);
     expect(calls.map((c) => c.method)).toEqual([
@@ -304,6 +304,19 @@ describe("McpConnectionClient", () => {
     );
     const client = new McpConnectionClient("mcp", URL);
     await expect(client.listTools()).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("explains a 401 depending on whether a token is set", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unauthorized", { status: 401 })),
+    );
+    await expect(
+      new McpConnectionClient("mcp", URL).listTools(),
+    ).rejects.toThrow(/HTTP 401 \(server requires a token/);
+    await expect(
+      new McpConnectionClient("mcp", URL, "old").listTools(),
+    ).rejects.toThrow(/HTTP 401 \(token rejected/);
   });
 
   it("re-initializes after reset()", async () => {

@@ -3,7 +3,7 @@
  * the Streamable HTTP transport — just enough to initialize a session, list
  * a server's tools, and call them from the chat tool-calling loop in
  * service.ts. Not a general-purpose SDK: no resources, prompts, sampling, or
- * subscriptions — signalk-mcp-container (and any other MCP server this
+ * subscriptions — signalk-mcp (and any other MCP server this
  * plugin talks to) is used purely as a tool source for Ollama's tool-calling
  * API.
  */
@@ -118,7 +118,13 @@ async function postJsonRpc(
     return { result: undefined, sessionId: returnedSession };
   }
   if (!res.ok) {
-    throw new Error(`MCP ${method} failed: HTTP ${res.status}`);
+    const authHint =
+      res.status === 401 || res.status === 403
+        ? token
+          ? " (token rejected: expired or lacking permission?)"
+          : " (server requires a token: set one on this connection)"
+        : "";
+    throw new Error(`MCP ${method} failed: HTTP ${res.status}${authHint}`);
   }
 
   const contentType = res.headers.get("content-type") ?? "";

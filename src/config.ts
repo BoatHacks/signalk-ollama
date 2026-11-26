@@ -39,7 +39,7 @@ export interface AdvancedSettings {
 /** One MCP server the chat tool-calling loop can offer tools from. */
 export interface McpConnectionSettings {
   name: string;
-  /** Streamable HTTP endpoint, e.g. "http://localhost:8000/mcp". */
+  /** Streamable HTTP endpoint, e.g. "http://localhost:3000/plugins/signalk-mcp/mcp". */
   url: string;
   enabled: boolean;
   /**
@@ -67,9 +67,21 @@ export interface OllamaSettings {
 /** ~2.0 GB download — small enough to be a sane out-of-the-box default. */
 export const DEFAULT_MODEL = "llama3.2:3b";
 
-/** signalk-mcp-container's documented Streamable HTTP endpoint. */
-export const DEFAULT_MCP_CONNECTION_NAME = "signalk-mcp-container";
-export const DEFAULT_MCP_URL = "http://localhost:8000/mcp";
+/**
+ * The signalk-mcp plugin's endpoint on a Signal K server at its default port
+ * (3000). It runs inside the server itself, so it is always reachable on
+ * localhost; change the port if your server listens elsewhere.
+ */
+export const DEFAULT_MCP_CONNECTION_NAME = "signalk-mcp";
+export const DEFAULT_MCP_URL = "http://localhost:3000/plugins/signalk-mcp/mcp";
+/** How to get the token signalk-mcp always requires, shown in the config UI. */
+export const MCP_TOKEN_HINT =
+  "signalk-mcp always needs a Signal K token, even when guest reads are " +
+  "allowed. Add a user with Read Only permissions under Security > Users " +
+  "in the Admin UI (e.g. mcp-agent), then on the Signal K server run " +
+  "`signalk-generate-token -u mcp-agent -e 365d -s ~/.signalk/security.json` " +
+  "as the account that runs Signal K, and paste the printed token here. " +
+  "Generate a new one when it expires.";
 
 export function defaultSettings(): OllamaSettings {
   return {
@@ -88,8 +100,8 @@ export function defaultSettings(): OllamaSettings {
     },
     mcp: {
       enabled: true,
-      // signalk-mcp-container by default — install and enable it to give
-      // chat models live SignalK data and tools with no extra setup.
+      // The signalk-mcp plugin by default: install and enable it, and set a
+      // token (see MCP_TOKEN_HINT), to give chat models live SignalK data.
       connections: [
         {
           name: DEFAULT_MCP_CONNECTION_NAME,
@@ -400,7 +412,7 @@ export const CONFIG_SCHEMA = {
             "When on, the playground (and any other caller of /api/chat) " +
             "offers the tools from the connections below to the model via " +
             "Ollama's tool-calling API, so it can call them mid-conversation " +
-            "(e.g. read live SignalK data through signalk-mcp-container). " +
+            "(e.g. read live SignalK data through the signalk-mcp plugin). " +
             "Only tool-calling-capable models actually use them; others " +
             "just ignore the tools.",
         },
@@ -418,8 +430,8 @@ export const CONFIG_SCHEMA = {
                 title: "Bearer token (optional)",
                 description:
                   "Sent as an Authorization: Bearer header, for servers " +
-                  "that require one (e.g. a Signal K user token for " +
-                  "signalk-mcp). Leave empty for none.",
+                  "that require one. Leave empty for none. " +
+                  MCP_TOKEN_HINT,
               },
             },
           },
@@ -432,10 +444,11 @@ export const CONFIG_SCHEMA = {
           ],
           description:
             "Model Context Protocol servers reachable over Streamable " +
-            `HTTP. Defaults to this boat's signalk-mcp-container plugin at ` +
-            `${DEFAULT_MCP_URL} — install and enable that plugin to give ` +
-            "models live SignalK data and tools with no extra setup. Add " +
-            "more MCP servers here if you run others.",
+            "HTTP. Defaults to the signalk-mcp plugin on this Signal K " +
+            `server at ${DEFAULT_MCP_URL} (change the port if your server ` +
+            "doesn't listen on 3000). Install and enable that plugin and set " +
+            "a token on the connection to give models live SignalK data. " +
+            "Add more MCP servers here if you run others.",
         },
       },
     },

@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `mcp.connections[].token`. The token is never returned by
   `/api/mcp/status` or written to the session log, and changing it starts
   a fresh MCP session.
+- A 401 or 403 from an MCP server now says whether the connection is
+  missing a token or the token was rejected.
+
+### Changed
+
+- The default MCP connection now points at the
+  [signalk-mcp](https://github.com/arodus/signalk-mcp) plugin on the local
+  Signal K server (`http://localhost:3000/plugins/signalk-mcp/mcp`) instead
+  of signalk-mcp-container. The config panel and README explain how to
+  create the read-only user and token it needs. Saved configurations keep
+  their existing connections.
 
 ## [0.2.7] - 2026-11-25
 

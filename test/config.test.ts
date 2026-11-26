@@ -69,7 +69,7 @@ describe("applyDefaults", () => {
     expect(settings.models).toEqual(["llama3.2:3b"]);
   });
 
-  it("defaults mcp to enabled with signalk-mcp-container as the one connection", () => {
+  it("defaults mcp to enabled with the signalk-mcp plugin as the one connection", () => {
     const d = defaultSettings();
     expect(d.mcp.enabled).toBe(true);
     expect(d.mcp.connections).toEqual([

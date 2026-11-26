@@ -32,6 +32,15 @@ const IMAGE = "ollama/ollama";
 const DEFAULT_PORT = 11434;
 
 /** Mirrors defaultSettings() in ../config.ts. */
+const MCP_TOKEN_HINT =
+  "Getting a token for signalk-mcp: it always needs one, even when guest " +
+  "reads are allowed. Add a user with Read Only permissions under " +
+  "Security > Users (e.g. mcp-agent), then on the Signal K server run " +
+  "`signalk-generate-token -u mcp-agent -e 365d -s ~/.signalk/security.json` " +
+  "as the account that runs Signal K, and paste the printed token into the " +
+  "connection's token field. A 401 error from Test connections means the " +
+  "token is missing or expired.";
+
 const DEFAULTS = {
   imageTag: "auto",
   models: ["llama3.2:3b"],
@@ -42,8 +51,8 @@ const DEFAULTS = {
   mcpEnabled: true,
   mcpConnections: [
     {
-      name: "signalk-mcp-container",
-      url: "http://localhost:8000/mcp",
+      name: "signalk-mcp",
+      url: "http://localhost:3000/plugins/signalk-mcp/mcp",
       enabled: true,
     },
   ],
@@ -307,7 +316,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
       <SectionTitle>MCP tool connections</SectionTitle>
       <FieldRow
         label="Enable MCP tools"
-        hint="lets chat models call tools from the connections below (e.g. read live SignalK data via signalk-mcp-container)"
+        hint="lets chat models call tools from the connections below (e.g. read live SignalK data via the signalk-mcp plugin)"
       >
         <input
           type="checkbox"
@@ -315,6 +324,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
           onChange={(e) => setMcpEnabled(e.target.checked)}
         />
       </FieldRow>
+      <div style={S.hint}>{MCP_TOKEN_HINT}</div>
       {mcpConnections.length === 0 && (
         <div style={S.hint}>
           No MCP connections configured — chat runs without tools.
@@ -364,7 +374,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
       })}
       <FieldRow
         label="Add MCP server"
-        hint="Streamable HTTP endpoint, e.g. http://localhost:8000/mcp, plus an optional bearer token for servers that require one (e.g. a Signal K user token for signalk-mcp)"
+        hint="Streamable HTTP endpoint, e.g. http://localhost:3000/plugins/signalk-mcp/mcp, plus an optional bearer token for servers that require one"
       >
         <input
           style={{ ...S.input, width: 140 }}
@@ -382,7 +392,7 @@ export default function PluginConfigurationPanel({ configuration, save }) {
               addMcpConnection();
             }
           }}
-          placeholder="http://localhost:8000/mcp"
+          placeholder="http://localhost:3000/plugins/signalk-mcp/mcp"
         />
         <input
           style={{ ...S.input, width: 160, marginLeft: 8 }}
